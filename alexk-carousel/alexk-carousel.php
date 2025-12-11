@@ -1,5 +1,5 @@
 <?php
-// File: wp-content/plugins/client-carousel/client-carousel.php
+
 
 /**
  * Plugin Name: Alex K - Client Image Carousel
