@@ -19,6 +19,6 @@ if (!defined('ABSPATH')) {
  * We will remove this once real functionality is in place.
  */
 function alexk_carousel_dev_notice() {
-    echo '<p style="opacity:0.6; text-align:center; margin-top:1rem;">Client Carousel plugin is active (dev mode).</p>';
+    echo '<p style="opacity:0.6; text-align:center; margin-top:1rem;">Alex K Image Carousel plugin is active (dev mode).</p>';
 }
 add_action('admin_footer', 'alexk_carousel_dev_notice');
