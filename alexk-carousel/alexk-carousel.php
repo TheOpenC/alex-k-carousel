@@ -9,16 +9,7 @@
  * Text Domain: alexk-carousel
  */
 
-$atts = shortcode_atts(['ids' => ''], $atts, 'alexk_carousel'); // guarantees the key exists ( no undefined index)
 
-$ids_string = $atts['ids'];
-$ids = explode(',', $ids_string); // split strings into an array
-$ids = array_map('trim', $ids); // remove whitespace
-$ids = array_map('intval', $ids); //convert to integer
-$ids = array_filter($ids); // removes junk ( 0s for empty entries)
-$ids = array_values($ids); // makes the array clean for looping
-
-return '<pre>' . print_r($ids, true) . '</pre>';
 
 
 
@@ -42,14 +33,16 @@ add_action('admin_footer', 'alexk_carousel_dev_notice');
  */
 function alexk_carousel_shortcode($atts = []) {
     // Later we'll accept options like count, category, etc.
-    $atts = shortcode_atts([
-        'message' => 'Alex K Carousel shortcode is working.',
-    ], $atts, 'alexk_carousel');
+    $atts = shortcode_atts(['ids' => ''], $atts, 'alexk_carousel'); // guarantees the key exists ( no undefined index)
 
-    // Always return a string from shortcodes (don’t echo).
-    $safe_message = esc_html($atts['message']);
+$ids_string = $atts['ids'];
+$ids = explode(',', $ids_string); // split strings into an array
+$ids = array_map('trim', $ids); // remove whitespace
+$ids = array_map('intval', $ids); //convert to integer
+$ids = array_filter($ids); // removes junk ( 0s for empty entries)
+$ids = array_values($ids); // makes the array clean for looping
 
-    return '<div class="alexk-carousel">' . $safe_message . '</div>';
+return '<pre>' . print_r($ids, true) . '</pre>';
 }
 
 add_shortcode('alexk_carousel', 'alexk_carousel_shortcode');
