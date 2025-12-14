@@ -9,6 +9,19 @@
  * Text Domain: alexk-carousel
  */
 
+$atts = shortcode_atts(['ids' => ''], $atts, 'alexk_carousel'); // guarantees the key exists ( no undefined index)
+
+$ids_string = $atts['ids'];
+$ids = explode(',', $ids_string); // split strings into an array
+$ids = array_map('trim', $ids); // remove whitespace
+$ids = array_map('intval', $ids); //convert to integer
+$ids = array_filter($ids); // removes junk ( 0s for empty entries)
+$ids = array_values($ids); // makes the array clean for looping
+
+return '<pre>' . print_r($ids, true) . '</pre>';
+
+
+
 if (!defined('ABSPATH')) {
     // Abort if this file is loaded directly.
     exit;
@@ -40,3 +53,9 @@ function alexk_carousel_shortcode($atts = []) {
 }
 
 add_shortcode('alexk_carousel', 'alexk_carousel_shortcode');
+
+function alexk_debug_time() {
+    return 'Rendered at: ' . current_time('H:i:s');
+}
+
+add_shortcode('alexk_time', 'alexk_debug_time');
