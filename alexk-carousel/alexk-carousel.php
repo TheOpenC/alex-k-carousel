@@ -33,7 +33,7 @@ add_action('admin_footer', 'alexk_carousel_dev_notice');
  */
 function alexk_carousel_shortcode($atts = []) {
     $atts = shortcode_atts([
-        'ids' => '38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22',
+        'ids' => '',
         'limit' => 10,
         'shuffle' => 1,
     ], $atts, 'alexk_carousel'); // guarantees the key exists ( no undefined index)
