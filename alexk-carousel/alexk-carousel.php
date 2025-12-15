@@ -41,9 +41,8 @@ function alexk_carousel_shortcode($atts = []) {
 $limit = max(1, (int) $atts['limit']);
 $shuffle = (int) $atts['shuffle'] === 1;
 
-if ($shuffle) shuffle($ids);
-$ids = array_slice($ids, 0, $limit);
 
+// 1) Build $ids first
 $ids_string = $atts['ids'];
 $ids = explode(',', $ids_string); // split strings into an array
 $ids = array_map('trim', $ids); // remove whitespace
@@ -51,9 +50,16 @@ $ids = array_map('intval', $ids); //convert to integer
 $ids = array_filter($ids); // removes junk ( 0s for empty entries)
 $ids = array_values($ids); // makes the array clean for looping
 
+// 2) Guard if empty
 if (empty($ids)){
     return '<div class="alexk-carousel__empty">No ids provided.</div>';
 };
+
+// 3) Shuffle + limit safely
+if ($shuffle) shuffle($ids);
+$ids = array_slice($ids, 0, $limit);
+
+
 $html = '<div class="alexk-carousel">';
 
 foreach ($ids as $id) {
