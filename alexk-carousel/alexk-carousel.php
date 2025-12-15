@@ -32,7 +32,6 @@ add_action('admin_footer', 'alexk_carousel_dev_notice');
  * For now: just proves the plugin can render on the front-end.
  */
 function alexk_carousel_shortcode($atts = []) {
-    // Later we'll accept options like count, category, etc.
     $atts = shortcode_atts(['ids' => ''], $atts, 'alexk_carousel'); // guarantees the key exists ( no undefined index)
 
 $ids_string = $atts['ids'];
@@ -42,7 +41,21 @@ $ids = array_map('intval', $ids); //convert to integer
 $ids = array_filter($ids); // removes junk ( 0s for empty entries)
 $ids = array_values($ids); // makes the array clean for looping
 
-return '<pre>' . print_r($ids, true) . '</pre>';
+if (empty($ids)){
+    return '<div class="alexk-carousel__empty">No ids provided.</div>';
+};
+$html = '<div class="alexk-carousel">';
+
+foreach ($ids as $id) {
+    $img = wp_get_attachment_image($id, 'large', false, ['loading' => 'lazy']);
+    if ($img) {
+        $html .= '<div class="alexk-carousel__slide">' . $img . '</div>';
+    }
+}
+
+$html .= '</div>';
+
+return $html;
 }
 
 add_shortcode('alexk_carousel', 'alexk_carousel_shortcode');
