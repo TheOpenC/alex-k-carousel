@@ -32,7 +32,17 @@ add_action('admin_footer', 'alexk_carousel_dev_notice');
  * For now: just proves the plugin can render on the front-end.
  */
 function alexk_carousel_shortcode($atts = []) {
-    $atts = shortcode_atts(['ids' => ''], $atts, 'alexk_carousel'); // guarantees the key exists ( no undefined index)
+    $atts = shortcode_atts([
+        'ids' => '',
+        'limit' => 10,
+        'shuffle' => 1,
+    ], $atts, 'alexk_carousel'); // guarantees the key exists ( no undefined index)
+
+$limit = max(1, (int) $atts['limit']);
+$shuffle = (int) $atts['shuffle'] === 1;
+
+if ($shuffle) shuffle($ids);
+$ids = array_slice($ids, 0, $limit);
 
 $ids_string = $atts['ids'];
 $ids = explode(',', $ids_string); // split strings into an array
