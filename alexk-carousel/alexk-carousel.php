@@ -57,13 +57,13 @@ if (!empty($atts['ids'])) {
 } else {
     // no ids provided -> fetch selected images from Media Library meta
     $ids = get_posts(array(
-        'post_type'     => 'attachment',
-        'post_mime_type'=> 'image',        
-        'post_status'   => 'inherit',
-        'fields'        => 'ids',        
-        'post_per_page' => -1,
-        'meta_key'      => '_alexk_include_in_carousel',        
-        'meta_value'    => '1',
+        'post_type'         => 'attachment',
+        'post_mime_type'    => 'image',        
+        'post_status'       => 'inherit',
+        'fields'            => 'ids',        
+        'posts_per_page'    => -1,
+        'meta_key'          => '_alexk_include_in_carousel',        
+        'meta_value'        => '1',
     ));
 }
 
@@ -102,3 +102,33 @@ add_shortcode('alexk_time', 'alexk_debug_time');
 // ======================================================
 // Media Library: "Include in carousel" checkbox
 // ======================================================
+add_filter('attachment_fields_to_edit', 'alexk_add_carousel_checkbox_field', 10, 2);
+function alexk_add_carousel_checkbox_field($form_fields, $post) {
+    $value = get_post_meta($post->ID, '_alexk_include_in_carousel', true);
+
+    $form_fields['alexk_include_in_carousel'] = array(
+        'label' => 'Alex K Carousel',
+        'input' => 'html',
+        'html'  => sprintf(
+            '<label><input type="checkbox" name="attachments[%d][alexk_include_in_carousel]" value="1" %s /> Include in carousel</label>',
+            (int) $post->ID,
+            checked($value, '1', false)
+
+        ),
+    );
+
+    return $form_fields;
+}
+
+add_filter('attachment_fields_to_save', 'alexk_save_carousel_checkbox_field', 10, 2);
+function alexk_save_carousel_checkbox_field($post, $attachment) {
+    $is_checked = isset($attachment['alexk_include_in_carousel']) && $attachment['alexk_include_in_carousel'] === '1';
+
+    if ($is_checked) {
+        update_post_meta($post['ID'], '_alexk_include_in_carousel', '1');
+    } else {
+        delete_post_meta($post['ID'], '_alexk_include_in_carousel');
+    }
+
+    return $post;
+}
