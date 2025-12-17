@@ -107,7 +107,7 @@ function alexk_add_carousel_checkbox_field($form_fields, $post) {
     $value = get_post_meta($post->ID, '_alexk_include_in_carousel', true);
 
     $form_fields['alexk_include_in_carousel'] = array(
-        'label' => 'Alex K Carousel',
+        'label' => 'Alex K Carousel (test)',
         'input' => 'html',
         // 'html'  => sprintf(
         //     '<label><input type="checkbox" name="attachments[%d][alexk_include_in_carousel]" value="1" %s /> Include in carousel</label>',
