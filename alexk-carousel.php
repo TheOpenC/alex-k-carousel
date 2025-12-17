@@ -109,11 +109,29 @@ function alexk_add_carousel_checkbox_field($form_fields, $post) {
     $form_fields['alexk_include_in_carousel'] = array(
         'label' => 'Alex K Carousel',
         'input' => 'html',
-        'html'  => sprintf(
-            '<label><input type="checkbox" name="attachments[%d][alexk_include_in_carousel]" value="1" %s /> Include in carousel</label>',
-            (int) $post->ID,
-            checked($value, '1', false)
+        // 'html'  => sprintf(
+        //     '<label><input type="checkbox" name="attachments[%d][alexk_include_in_carousel]" value="1" %s /> Include in carousel</label>',
+        //     (int) $post->ID,
+        //     checked($value, '1', false)
 
+        // ),
+        'html' => sprintf(
+            '<div class="alexk-carousel-admin-field">
+                <label class="alexk-carousel-admin-label">
+                    <input type="checkbox"
+                        name="attachments[%d][alexk_include_in_carousel]"
+                        value="1"
+                        %s
+                    />
+                    Include in carousel
+                </label>
+                <div class="alexk-carousel-admin-help">
+                    When checked, this image will appear in the Alex K carousel when using the <code>[alexk_carousel]</code> shortcode without IDs. 
+                </div>
+            </div>',
+            (int) $post-> ID,
+            checked($value, '1', false)    
+    
         ),
     );
 
