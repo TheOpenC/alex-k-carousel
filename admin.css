@@ -1,0 +1,15 @@
+/* Wrapper you control */
+.alexk-carousel-admin-field {
+  padding: 8px 0;
+}
+
+.alexk-carousel-admin-field label {
+  font-weight: 600;
+}
+
+.alexk-carousel-admin-help {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 1.3;
+}
