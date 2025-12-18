@@ -1,14 +1,14 @@
 /* Wrapper you control */
-.alexk-carousel-rightside-container {
+#alexk-carousel-rightside-container {
   padding: 8px 0;
 }
 
-.alexk-carousel-rightside-container label {
+#alexk-carousel-rightside-container label {
   font-weight: 600;
   padding-left: 2rem;
 }
 
-.alexk-carousel-checkbox-details {
+#alexk-carousel-checkbox-details {
   padding-top: 2rem;
   margin-top: 6px;
   font-size: 12px;
