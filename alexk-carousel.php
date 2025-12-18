@@ -26,7 +26,14 @@ function alexk_carousel_dev_notice() {
     echo '<p style="opacity:0.6; text-align:center; margin-top:1rem;">Alex K Image Carousel plugin is active (dev mode).</p>';
 }
 add_action('admin_footer', 'alexk_carousel_dev_notice');
-
+add_action('admin_enqueue_scripts', function () {
+    wp_enqueue_style(
+        'alexk-carousel-admin',
+        plugin_dir_url(__FILE__) . 'admin.css',
+        [],
+        filemtime(plugin_dir_path(__FILE__) . 'admin.css')
+    );
+});
 /**
  * Shortcode: [alexk_carousel]
  * For now: just proves the plugin can render on the front-end.
