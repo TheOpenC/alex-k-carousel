@@ -25,6 +25,11 @@ if (!defined('ABSPATH')) {
 function alexk_carousel_dev_notice() {
     echo '<p style="opacity:0.6; text-align:center; margin-top:1rem;">Alex K Image Carousel plugin is active (dev mode).</p>';
 }
+// ************************
+// Enqueue Logic // CSS 
+// ************************
+
+// admin.css (image menu + checkbox styling)
 add_action('admin_footer', 'alexk_carousel_dev_notice');
 add_action('admin_enqueue_scripts', function () {
     wp_enqueue_style(
@@ -34,6 +39,18 @@ add_action('admin_enqueue_scripts', function () {
         filemtime(plugin_dir_path(__FILE__) . 'admin.css')
     );
 });
+
+// frontend.css landing page styling
+function alexk_enqueue_frontend_styles() {
+    wp_enqueue_style(
+        'alexk-frontend',
+        plugin_dir_url(__FILE__) . 'css/frontend.css',
+        [],
+        '1.0'
+    );
+}
+add_action('wp_enqueue_scripts', 'alexk_enqueue_frontend_styles');
+
 /**
  * Shortcode: [alexk_carousel]
  * For now: just proves the plugin can render on the front-end.
