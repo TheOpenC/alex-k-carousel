@@ -1,11 +1,16 @@
 /* Wrapper you control */
+* {
+  outline: 1px solid red;
+}
+
 .media-modal .alexk-carousel-rightside-container {
-  padding: 80px 0;
+  padding: 0;
 }
 
 .media-modal .alexk-carousel-rightside-container label {
   font-weight: 600;
   padding-left: 0rem;
+  padding-top: 0rem;
 }
 
 .media-modal .alexk-carousel-checkbox-details {
