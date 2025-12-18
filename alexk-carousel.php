@@ -4,7 +4,7 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel
  * Description: Simple random image carousel for a client site.
- * Version: 0.1.2
+ * Version: 0.1.3
  * Author: Drew Dudak
  * Text Domain: alexk-carousel
  */
