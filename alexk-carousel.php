@@ -125,7 +125,8 @@ function alexk_add_carousel_checkbox_field($form_fields, $post) {
         'html' => sprintf(
             '<div class="alexk-carousel-rightside-container">
                 <label class="alexk-carousel-rightside-label">
-                    <input type="checkbox"
+                    <input class="carousel-checkbox" 
+                        type="checkbox"
                         name="attachments[%d][alexk_include_in_carousel]"
                         value="1"
                         %s
@@ -133,7 +134,7 @@ function alexk_add_carousel_checkbox_field($form_fields, $post) {
                     Include in carousel
                 </label>
                 <div class="alexk-carousel-checkbox-details">
-                    When checked, this image will appear in the <code>Alex K image carousel</code>
+                    When checked, this image will be included in the main page image carousel.
                 </div>
             </div>',
             (int) $post->ID,
