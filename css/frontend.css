@@ -1,22 +1,49 @@
 
-   
-    .alexk-contact-cover .wp_block-cover__inner-container {
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        box-sizing: border-box;
-    }
 
-    @media (max-width: 768px) {
-        .alexk-contact-cover .wp_block-cover__inner-container{
-            min-height: 100svh;
-            padding-top: 12vh;
-            padding-bottom: 12vh;
-        }
+.home .alexk-contact-cover {
+    overflow: hidden;
+    min-height: 100svh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 
-        .alexk-contact-stack{
-            gap: 12px;
-        }
+body.home .alexk-contact-cover.wp-block-cover .wp-block-cover__inner-container {
+    width: auto;
+    max-width: 100%;
+    padding-inline: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+body.home .alexk-contact-cover .wp-block-group,
+body.home .alexk-contact-cover .wp-block-columns {
+    margin-left: auto;
+    margin-right: auto;
+}
+    
+body.home .alexk-contact-cover img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+
+@media (max-width: 768px) {
+  .alexk-contact-stack {
+    gap: 12px;
+  }
+}
+
+body.home header.site-header,
+body.home footer.site-footer {
+  display: none;
+}
+
+/* HOME ONLY — no page scrolling */
+html body.home {
+  overflow: hidden;
 }
