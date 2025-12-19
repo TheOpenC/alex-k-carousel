@@ -4,7 +4,7 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel
  * Description: Simple random image carousel for a client site.
- * Version: 0.1.3
+ * Version: 0.1.4
  * Author: Drew Dudak
  * Text Domain: alexk-carousel
  */
@@ -57,29 +57,27 @@ add_action('wp_enqueue_scripts', 'alexk_enqueue_frontend_styles');
  */
 function alexk_carousel_shortcode($atts = []) {
     $atts = shortcode_atts([
-        'ids' => '',    
-        'limit' => 1, // number of images to display. This is a default value, not law. Overwritten by page editor
-        'shuffle' => 1,
-    ], $atts, 'alexk_carousel'); // guarantees the key exists ( no undefined index)
+        'ids'       => '',    
+        'limit'     => 1, // 0 = no limit, > 0 = cap pool size  
+        'shuffle'   => 1,
+    ], $atts, 'alexk_carousel'); 
 
-$limit = max(1, (int) $atts['limit']);
-$shuffle = (int) $atts['shuffle'] === 1;
+$limit = max(0, (int) $atts['limit']);
+$shuffle = ((int) $atts['shuffle'] === 1);
 
+        /* =========================
+        1) Build image ID list
+        ========================= */
 
-// 1) Build $ids first from shortcode OR from selected attachment meta
-
-$ids = array();
 
 if (!empty($atts['ids'])) {
-    // ids were explicitly provided -> parse them
-    $ids_string = $atts['ids'];    
-    $ids = explode(',', $ids_string); // js split
+    $ids_string =    
+    $ids = explode(',', $atts['ids']); // js split
     $ids = array_map('trim', $ids); // js trim whitespace
     $ids = array_map('intval', $ids); // Number
     $ids = array_filter($ids); 
     $ids = array_values($ids);    
 } else {
-    // no ids provided -> fetch selected images from Media Library meta
     $ids = get_posts(array(
         'post_type'         => 'attachment',
         'post_mime_type'    => 'image',        
@@ -91,37 +89,78 @@ if (!empty($atts['ids'])) {
     ));
 }
 
-// 2) Guard if still empty (no ids provided AND no images selected)
 if (empty($ids)) {
     return '<div class="alexk-carousel__empty">No images selected for the carousel.</div>';
 };
 
-// 3) Shuffle + limit safely
-if ($shuffle) shuffle($ids);
-$ids = array_slice($ids, 0, $limit);
+    /* =========================
+       2) Shuffle + limit pool
+       ========================= */
+
+if ($shuffle) {
+    shuffle($ids);
+}
+
+if ($limit > 0) {
+    $ids = array_slice($ids, 0, $limit);
+}
 
 
-$html = '<div class="alexk-carousel">';
+    /* =========================
+       3) Build image payload
+       ========================= */
 
-foreach ($ids as $id) { //loops through 
-    $img = wp_get_attachment_image($id, 'large', false, ['loading' => 'lazy']); // generate img tag (srcset)
-    if ($img) { // skips any ID that isn't an image
-        $html .= '<div class="alexk-carousel__slide">' . $img . '</div>';
+    $images = [];
+
+foreach ($ids as $id) { 
+    $src = wp_get_attachment_image_url($id, 'large');
+    if (!$src) continue;
+
+    $images[] = [
+        'src'      => esc_url_raw($src),  
+        'srcset'   => wp_get_attachment_image_srcset($id, 'large') ?: '',
+        'sizes'    => wp_get_attachment_image_sizes($id, 'large') ?: '',
+        'alt'      => get_post_meta($id, '_wp_attachment_image_alt', true) ?: '',
+    ];
+
+
+
+    if (empty($images)) {
+        return '<div class="alexk-carousel__empty">No valid images found.</div>';
     }
 }
 
-$html .= '</div>'; 
+    /* =========================
+       4) Initial image (server)
+       ========================= */
+    $first = $images[0];
+    $data_images = wp_json_encode($images);
 
-return $html; // returns a string of html
+    /* =========================
+       5) Output ONE image
+       ========================= */
+
+    $html = '<div class="alexk-carousel" data-images=\'' . esc_attr($data_images) . '\'>'; 
+    $html .= ' <button type="button" class="alexk-carousel__btn" aria-label="Show another image">';
+    $html .= ' <img clas="alexk-carousel__img" src="' . esc_url($first['src']) . '"';
+
+    if (!empty($first['srcset'])) {
+        $html .= ' srcset="' . esc_attr($first['srcset']) . '"';
+    }
+    if (!empty($first['sizes'])) {
+        $html .= ' sizes="' . esc_attr($first['sizes']) . '"';
+    }
+
+    $html .= ' alt="' . esc_attr($first['alt']) . '" loading="lazy" decoding="async" />';
+    $html .= ' </button>';
+    $html .= '</div>';
+
+    return $html;
 }
 
 add_shortcode('alexk_carousel', 'alexk_carousel_shortcode');
 
-function alexk_debug_time() {
-    return 'Rendered at: ' . current_time('H:i:s');
-}
 
-add_shortcode('alexk_time', 'alexk_debug_time');
 
 // ======================================================
 // Media Library: "Include in carousel" checkbox

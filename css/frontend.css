@@ -1,49 +1,34 @@
-
-
-.home .alexk-contact-cover {
-    overflow: hidden;
-    min-height: 100svh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+/* /* =========================
+   HOME — HARD RESET + MINIMAL CSS
+   ========================= */
+html {
+    height: 100vh;
 }
 
-body.home .alexk-contact-cover.wp-block-cover .wp-block-cover__inner-container {
-    width: auto;
-    max-width: 100%;
-    padding-inline: 24px;
+body.home *,
+body.home *::before,
+body.home *::after {
+  box-sizing: border-box;
+} 
+body.home{
     display: flex;
-    justify-content: center;
     align-items: center;
+    height: 100vh; 
+    /* added */
+    justify-content: center;
     margin: 0;
-    box-sizing: border-box;
 }
 
-body.home .alexk-contact-cover .wp-block-group,
-body.home .alexk-contact-cover .wp-block-columns {
-    margin-left: auto;
-    margin-right: auto;
-}
-    
-body.home .alexk-contact-cover img {
-    max-width: 100%;
-    height: auto;
-    display: block;
+body.home .wp-block-cover {
+  width: 100%;
+  margin-inline: auto;
 }
 
-
-@media (max-width: 768px) {
-  .alexk-contact-stack {
-    gap: 12px;
-  }
-}
-
+/* Hide theme chrome */
 body.home header.site-header,
 body.home footer.site-footer {
   display: none;
 }
-
-/* HOME ONLY — no page scrolling */
-html body.home {
-  overflow: hidden;
+body.home {
+  overflow: hidden;   /* ← THIS is the scrollbar kill switch */
 }
