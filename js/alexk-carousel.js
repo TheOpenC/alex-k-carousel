@@ -69,3 +69,33 @@ function parseImagesData(carousel) {
     return [];
   }
 }
+
+function shuffleInPlace(array) {
+  // Shuffles IN PLACE (mutates array)
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = getRandomInt(0, i);
+
+    const temp = array[i];
+    array[i] = array[j];
+    array[j] = temp;
+  }
+}
+
+function getRandomInt(min, max) {
+  const range = max - min + 1;
+  return Math.floor(Math.random() * range) + min;
+}
+
+function updateCarouselImage(imgElement, imageObj) {
+  if (!imgElement) return;
+  if (!imageObj) return;
+
+  // Your data-images objects definitely have "src"
+  imgElement.src = imageObj.src;
+
+  // Only set these if present (your JSON shows these exist)
+  if (imageObj.srcset) imgElement.srcset = imageObj.srcset;
+  if (imageObj.sizes) imgElement.sizes = imageObj.sizes;
+  if (typeof imageObj.alt === 'string') imgElement.alt = imageObj.alt;
+}
+
