@@ -1,55 +1,101 @@
 <?php
-
-
 /**
  * Plugin Name: Alex K - Client Image Carousel
- * Description: Simple random image carousel for a client site.
- * Version: 0.1.4
+ * Description: Simple image shuffle carousel for Alex Kwartler.
+ * Version: 0.1.5
  * Author: Drew Dudak
  * Text Domain: alexk-carousel
  */
 
 
-
-
-
-if (!defined('ABSPATH')) {
-    // Abort if this file is loaded directly.
+if (!defined('ABSPATH') ) {
     exit;
 }
 
 /**
- * Temporary test hook so we can confirm the plugin is active.
- * We will remove this once real functionality is in place.
+ * Basic plugin constants (keeps paths/URLs consistent and readable).
  */
-function alexk_carousel_dev_notice() {
-    echo '<p style="opacity:0.6; text-align:center; margin-top:1rem;">Alex K Image Carousel plugin is active (dev mode).</p>';
-}
-// ************************
-// Enqueue Logic // CSS 
-// ************************
+define( 'ALEXK_CAROUSEL_VERSION', '0.1.5' );
+define( 'ALEXK_CAROUSEL_PATH', plugin_dir_path( __FILE__ ) );
+define( 'ALEXK_CAROUSEL_URL',  plugin_dir_url( __FILE__ ) );
 
-// admin.css (image menu + checkbox styling)
-add_action('admin_footer', 'alexk_carousel_dev_notice');
-add_action('admin_enqueue_scripts', function () {
-    wp_enqueue_style(
-        'alexk-carousel-admin',
-        plugin_dir_url(__FILE__) . 'admin.css',
-        [],
-        filemtime(plugin_dir_path(__FILE__) . 'admin.css')
-    );
-});
+/**
+ * Enqueue frontend assets (CSS + JS) for the carousel.
+ * Uses filemtime() so browsers auto-refresh when you change files.
+ */
+function alexk_enqueue_frontend_assets() {
+	$css_rel  = 'css/frontend.css';
+	$css_file = ALEXK_CAROUSEL_PATH . $css_rel;
 
-// frontend.css landing page styling
-function alexk_enqueue_frontend_styles() {
-    wp_enqueue_style(
-        'alexk-frontend',
-        plugin_dir_url(__FILE__) . 'css/frontend.css',
-        [],
-        '1.0'
-    );
+	wp_enqueue_style(
+		'alexk-carousel-frontend',
+		ALEXK_CAROUSEL_URL . $css_rel,
+		[],
+		file_exists( $css_file ) ? filemtime( $css_file ) : ALEXK_CAROUSEL_VERSION
+	);
+
+	$js_rel  = 'js/alexk-carousel.js';
+	$js_file = ALEXK_CAROUSEL_PATH . $js_rel;
+
+	wp_enqueue_script(
+		'alexk-carousel-js',
+		ALEXK_CAROUSEL_URL . $js_rel,
+		[],
+		file_exists( $js_file ) ? filemtime( $js_file ) : ALEXK_CAROUSEL_VERSION,
+		true
+	);
 }
-add_action('wp_enqueue_scripts', 'alexk_enqueue_frontend_styles');
+
+add_action( 'wp_enqueue_scripts', 'alexk_enqueue_frontend_assets' );
+
+
+// function alexk_carousel_dev_notice() {
+//     echo '<p style="opacity:0.6; text-align:center; margin-top:1rem;">Alex K Image Carousel plugin is active (dev mode).</p>';
+// }
+// // ************************
+// // Enqueue Logic // CSS 
+// // ************************
+
+// // admin.css (image menu + checkbox styling)
+// add_action('admin_footer', 'alexk_carousel_dev_notice');
+// add_action('admin_enqueue_scripts', function () {
+//     wp_enqueue_style(
+//         'alexk-carousel-admin',
+//         plugin_dir_url(__FILE__) . 'admin.css',
+//         [],
+//         filemtime(plugin_dir_path(__FILE__) . 'admin.css')
+//     );
+// });
+
+
+// function alexk_enqueue_frontend_assets() {
+
+//     // CSS
+//     $css_rel  = 'css/frontend.css';
+//     $css_file = plugin_dir_path(__FILE__) . $css_rel;
+
+//     wp_enqueue_style(
+//         'alexk-carousel-frontend',
+//         plugin_dir_url(__FILE__) . $css_rel,
+//         [],
+//         file_exists($css_file) ? filemtime($css_file) : '1.0'
+//     );
+
+//     // JS
+//     $js_rel  = 'js/alexk-carousel.js';
+//     $js_file = plugin_dir_path(__FILE__) . $js_rel;
+
+//     wp_enqueue_script(
+//         'alexk-carousel-js',
+//         plugin_dir_url(__FILE__) . $js_rel,
+//         [],
+//         file_exists($js_file) ? filemtime($js_file) : '1.0',
+//         true
+//     );
+// }
+
+// add_action('wp_enqueue_scripts', 'alexk_enqueue_frontend_assets');
+
 
 /**
  * Shortcode: [alexk_carousel]
@@ -172,12 +218,6 @@ function alexk_add_carousel_checkbox_field($form_fields, $post) {
     $form_fields['alexk_include_in_carousel'] = array(
         'label' => 'Main Page Image Carousel',
         'input' => 'html',
-        // 'html'  => sprintf(
-        //     '<label><input type="checkbox" name="attachments[%d][alexk_include_in_carousel]" value="1" %s /> Include in carousel</label>',
-        //     (int) $post->ID,
-        //     checked($value, '1', false)
-
-        // ),
         'html' => sprintf(
             '<div class="alexk-carousel-rightside-container">
                 <label class="alexk-carousel-rightside-label">
