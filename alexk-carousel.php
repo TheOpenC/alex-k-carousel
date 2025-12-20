@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel
  * Description: Simple image shuffle carousel for Alex Kwartler.
- * Version: 0.1.5
+ * Version: 0.1.6
  * Author: Drew Dudak
  * Text Domain: alexk-carousel
  */
