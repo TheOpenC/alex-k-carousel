@@ -1,8 +1,4 @@
 
 [01_01_2026]
     FOLDER_01
-        Screenshot 2025-12-16 at 4.10.27 PM.png ✅ WebP, ✅ JPEG | ❌ AVIF
-
-[01_01_2026]
-    FOLDER_01
         Screenshot 2025-12-16 at 4.10.27 PM.png ✅ WebP, ✅ JPEG
