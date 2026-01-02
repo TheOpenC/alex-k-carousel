@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel
  * Description: Simple image shuffle carousel for Alex Kwartler.
- * Version: 0.2.1
+ * Version: 0.2.2
  * Author: Drew Dudak
  * Text Domain: alexk-carousel
  */
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Basic plugin constants (keeps paths/URLs consistent and readable).
  */
-define( 'ALEXK_CAROUSEL_VERSION', '0.2.1' );
+define( 'ALEXK_CAROUSEL_VERSION', '0.2.2' );
 define( 'ALEXK_CAROUSEL_PATH', plugin_dir_path( __FILE__ ) );
 define( 'ALEXK_CAROUSEL_URL',  plugin_dir_url( __FILE__ ) );
 
@@ -134,6 +134,9 @@ function alexk_sibling_file_exists_from_url( $url ) {
 	$relative = ltrim( substr( $url, strlen( $upload_dir['baseurl'] ) ), '/' );
 	$path     = trailingslashit( $upload_dir['basedir'] ) . $relative;
 
+    error_log("ALEXK sibling check url=$url path=$path exists=" . (file_exists($path) ? 'yes' : 'no'));
+
+
 	return file_exists( $path ) && filesize( $path ) > 0;
 }
 
@@ -155,6 +158,9 @@ function alexk_carousel_shortcode( $atts = [] ) {
 
 	$limit   = max( 0, (int) $atts['limit'] );
 	$shuffle = ( (int) $atts['shuffle'] === 1 );
+
+    $widths = [320, 480, 768, 1024, 1400];
+
 
 	/* 1) Build image ID list */
 	if ( ! empty( $atts['ids'] ) ) {
@@ -193,55 +199,72 @@ function alexk_carousel_shortcode( $atts = [] ) {
 	$images = [];
 
 	foreach ( $ids as $id ) {
-		$src = wp_get_attachment_url( $id ); // full/original file
-		if ( ! $src ) {
-			continue;
-		}
+		$src = wp_get_attachment_url( $id ); // original PNG (final fallback)
+        if ( ! $src ) {
+	        continue;
+        }
 
-		$webp_url = alexk_derive_sibling_url( $src, 'webp' );
-		$has_webp = alexk_sibling_file_exists_from_url( $webp_url );
+        $widths = [ 320, 480, 768, 1024, 1400 ];
 
-		$images[] = [
-			'src'    => '', // esc_url_raw( $src ),
-			'webp'   => $has_webp ? esc_url_raw( $webp_url ) : '',
-			'srcset' => '', // wp_get_attachment_image_srcset( $id, 'large' ) ?: '',
-			'sizes'  => wp_get_attachment_image_sizes( $id, 'large' ) ?: '',
-			'alt'    => get_post_meta( $id, '_wp_attachment_image_alt', true ) ?: '',
-		];
+        $webp_parts = [];
+        $jpg_parts  = [];
+
+        foreach ( $widths as $w ) {
+	        $webp_url = preg_replace( '/\.[a-zA-Z0-9]+$/', '-w' . $w . '.webp', $src );
+	        if ( alexk_sibling_file_exists_from_url( $webp_url ) ) {
+	    	    $webp_parts[] = esc_url_raw( $webp_url ) . ' ' . $w . 'w';
+	        }
+
+	        $jpg_url = preg_replace( '/\.[a-zA-Z0-9]+$/', '-w' . $w . '.jpg', $src );
+	        if ( alexk_sibling_file_exists_from_url( $jpg_url ) ) {
+	        	$jpg_parts[] = esc_url_raw( $jpg_url ) . ' ' . $w . 'w';
+	        }
+        }
+
+        $images[] = [
+        	'src'         => esc_url_raw( $src ),                 // PNG fallback
+        	'webp_srcset' => implode( ', ', $webp_parts ),        // your responsive webp set
+        	'jpg_srcset'  => implode( ', ', $jpg_parts ),         // your responsive jpg set
+        	'sizes'       => '90vw',
+        	'alt'         => get_post_meta( $id, '_wp_attachment_image_alt', true ) ?: '',
+        ];
+
 	}
 
 	if ( empty( $images ) ) {
-		return '<div class="alexk-carousel__empty">No valid images found.</div>';
-	}
+	return '<div class="alexk-carousel__empty">No valid images found.</div>';
+    }
 
-	/* 4) Initial image (server) */
-	$first       = $images[0];
-	$data_images = wp_json_encode( $images );
+    /* 4) Initial image (server) */
+    $first       = $images[0];
+    $data_images = wp_json_encode( $images );
 
-	/* 5) Output */
-	$html  = '<div class="alexk-carousel" data-images=\'' . esc_attr( $data_images ) . '\'>';
-	$html .= '<button type="button" class="alexk-carousel__btn" aria-label="Show another image">';
-	$html .= '<picture class="alexk-carousel__picture">';
+    /* 5) Output */
+    $html  = '<div class="alexk-carousel" data-images=\'' . esc_attr( $data_images ) . '\'>';
+    $html .= '<button type="button" class="alexk-carousel__btn" aria-label="Show another image">';
+    $html .= '<picture class="alexk-carousel__picture">';
 
-	if ( ! empty( $first['webp'] ) ) {
-		$html .= '<source type="image/webp" srcset="' . esc_url( $first['webp'] ) . '">';
-	}
+    if ( ! empty( $first['webp_srcset'] ) ) {
+    	$html .= '<source type="image/webp" srcset="' . esc_attr( $first['webp_srcset'] ) . '" sizes="' . esc_attr( $first['sizes'] ) . '">';
+    }
 
-	$html .= '<img class="alexk-carousel__img" src="' . esc_url( $first['src'] ) . '"';
+    $html .= '<img class="alexk-carousel__img" src="' . esc_url( $first['src'] ) . '"';
 
-	if ( ! empty( $first['srcset'] ) ) {
-		$html .= ' srcset="' . esc_attr( $first['srcset'] ) . '"';
-	}
-	if ( ! empty( $first['sizes'] ) ) {
-		$html .= ' sizes="' . esc_attr( $first['sizes'] ) . '"';
-	}
+    if ( ! empty( $first['jpg_srcset'] ) ) {
+    	$html .= ' srcset="' . esc_attr( $first['jpg_srcset'] ) . '"';
+    }
 
-	$html .= ' alt="' . esc_attr( $first['alt'] ) . '" loading="lazy" decoding="async" />';
-	$html .= '</picture>';
-	$html .= '</button>';
-	$html .= '</div>';
+    if ( ! empty( $first['sizes'] ) ) {
+    	$html .= ' sizes="' . esc_attr( $first['sizes'] ) . '"';
+    }
 
-	return $html;
+    $html .= ' alt="' . esc_attr( $first['alt'] ) . '" loading="lazy" decoding="async" />';
+    $html .= '</picture>';
+    $html .= '</button>';
+    $html .= '</div>';
+
+    return $html;
+
 }
 add_shortcode( 'alexk_carousel', 'alexk_carousel_shortcode' );
 

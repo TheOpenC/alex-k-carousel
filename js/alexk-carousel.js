@@ -90,12 +90,29 @@ function updateCarouselImage(imgElement, imageObj) {
   if (!imgElement) return;
   if (!imageObj) return;
 
-  // Your data-images objects definitely have "src"
+  // Prefer updating the <picture> source if it exists
+  const pictureEl = imgElement.closest('picture');
+  const sourceEl = pictureEl ? pictureEl.querySelector('source[type="image/webp"]') : null;
+
+  // Update WebP candidate set
+  if (sourceEl && imageObj.webp_srcset) {
+    sourceEl.srcset = imageObj.webp_srcset;
+    sourceEl.sizes = imageObj.sizes || '90vw';
+  }
+
+  // Update fallback <img> (JPEG srcset), keep original src as final fallback
   imgElement.src = imageObj.src;
 
-  // Only set these if present (your JSON shows these exist)
-  if (imageObj.srcset) imgElement.srcset = imageObj.srcset;
-  if (imageObj.sizes) imgElement.sizes = imageObj.sizes;
+  if (imageObj.jpg_srcset) {
+    imgElement.srcset = imageObj.jpg_srcset;
+  } else {
+    // If no jpg srcset provided, clear it so the browser doesn't stick to an old one
+    imgElement.removeAttribute('srcset');
+  }
+
+  imgElement.sizes = imageObj.sizes || '90vw';
+
   if (typeof imageObj.alt === 'string') imgElement.alt = imageObj.alt;
 }
+
 
