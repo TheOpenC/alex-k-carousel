@@ -1,0 +1,22 @@
+
+   
+    .alexk-contact-cover .wp_block-cover__inner-container {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+    }
+
+    @media (max-width: 768px) {
+        .alexk-contact-cover .wp_block-cover__inner-container{
+            min-height: 100svh;
+            padding-top: 12vh;
+            padding-bottom: 12vh;
+        }
+
+        .alexk-contact-stack{
+            gap: 12px;
+        }
+}

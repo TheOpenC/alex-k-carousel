@@ -1,0 +1,34 @@
+/* /* =========================
+   HOME — HARD RESET + MINIMAL CSS
+   ========================= */
+html {
+    height: 100vh;
+}
+
+body.home *,
+body.home *::before,
+body.home *::after {
+  box-sizing: border-box;
+} 
+body.home{
+    display: flex;
+    align-items: center;
+    height: 100vh; 
+    /* added */
+    justify-content: center;
+    margin: 0;
+}
+
+body.home .wp-block-cover {
+  width: 100%;
+  margin-inline: auto;
+}
+
+/* Hide theme chrome */
+body.home header.site-header,
+body.home footer.site-footer {
+  display: none;
+}
+body.home {
+  overflow: hidden;   /* ← THIS is the scrollbar kill switch */
+}
