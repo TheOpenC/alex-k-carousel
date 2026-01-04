@@ -152,4 +152,71 @@ Only PDFs are supported for document rasterization, and only the first page is u
 Support for certain image formats (such as HEIC or HEIF) depends on the server environment and available image libraries. When conversion is not possible, the plugin safely skips generation without affecting other carousel items.
 
 ---
+==============================================
+## WordPress Media Support vs Carousel Support
+==============================================
+
+WordPress supports a wide range of media file types across images, audio, and video. The Alex K Image Carousel plugin intentionally supports only a subset of these formats based on its design goals and hosting constraints.
+
+This section clarifies the distinction.
+
+---
+
+## Media File Types Supported by WordPress
+
+WordPress allows the following file types to be uploaded to the Media Library by default.
+
+### Audio Formats
+
+* MP3 (`.mp3`)
+* Ogg (`.ogg`)
+* WAV (`.wav`)
+
+### Video Formats
+
+* MP4 / M4V (MPEG-4)
+* MPG
+* MOV (QuickTime)
+* AVI
+* OGV (Ogg)
+* WMV (Windows Media Video)
+* 3GP (3GPP)
+* 3G2 (3GPP2)
+* VTT (text captions for video)
+
+These formats are fully supported by WordPress for storage and playback using native media players.
+
+---
+
+## Carousel Media Support (Current Version)
+
+The Alex K Image Carousel is designed as a **still-image carousel**. While WordPress supports audio and video uploads, these media types are **not included in the carousel** in the current version.
+
+### Not Supported in the Carousel
+
+* All audio formats
+* All video formats
+* Caption-only files (e.g. `.vtt`)
+
+These files may exist in the Media Library and function normally within WordPress, but they are ignored by the carousel system even if the carousel checkbox is enabled.
+
+---
+
+## Rationale
+
+The carousel’s image pipeline is optimized for:
+
+* High-quality still images
+* Predictable, responsive rendering
+* Compatibility with managed hosting environments
+* No reliance on shell tools or external binaries
+
+Supporting audio or video would require a different rendering model, timing logic, and accessibility considerations. These features are intentionally deferred to a future version.
+
+---
+
+## Future Direction
+
+Audio and video support may be added in a future release as part of a dedicated **media carousel** feature. Any such addition would be explicitly designed and documented rather than implicitly included.
+
 
