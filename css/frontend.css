@@ -32,3 +32,32 @@ body.home footer.site-footer {
 body.home {
   overflow: hidden;   /* ← THIS is the scrollbar kill switch */
 }
+
+.alexk-carousel {
+  width: 100%;
+  max-width: 100vw;
+  display: flex;
+  justify-content: center;
+}
+
+.alexk-carousel-picture,
+.alexk-carousel-image {
+  width: 100%;
+  height: auto;
+  max-height: 100vh;
+}
+
+/* Default: contain (no cropping, margin visible) */
+.alexk-carousel-image {
+  object-fit: contain;
+  display: block;
+}
+
+/* Portrait images: allow full-bleed width */
+@media (orientation: portrait) {
+  .alexk-carousel-image {
+    object-fit: cover;
+    width: 100vw;
+    max-width: 100vw;
+  }
+}
