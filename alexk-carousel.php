@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel
  * Description: Adds "Include in carousel" checkbox and generates responsive JPG+WebP files in a per-image folder (Elementor-safe; no shell). Includes robust cancel to prevent folder reappearing on mid-run uncheck.
- * Version: 0.2.5
+ * Version: 0.2.6
  */
 
 if (!defined('ABSPATH')) exit;
@@ -313,8 +313,50 @@ function alexk_wp_editor_resize_and_write_no_mkdir(string $src, string $dst, int
     $saved = $editor->save($dst, 'image/jpeg');
   }
 
+  
   return (!is_wp_error($saved) && !empty($saved['path']) && file_exists($saved['path']));
 }
+
+/**
+ * Frontend assets (loads JS/CSS for the carousel)
+ * ENQUEUE OF JS FILES
+ */
+add_action('wp_enqueue_scripts', function () {
+  $base_url  = plugin_dir_url(__FILE__);
+  $base_path = plugin_dir_path(__FILE__);
+
+  $js_rel  = 'js/alexk-carousel.js';
+  $css_rel = 'css/frontend.css';
+
+
+  $js_path  = $base_path . $js_rel;
+  $css_path = $base_path . $css_rel;
+
+  error_log('ALEXK enqueue base_path=' . $base_path . ' js_path=' . $js_path . ' js_exists=' . (file_exists($js_path) ? 'yes' : 'no'));
+
+  // If files are missing, don't enqueue.
+  if (!file_exists($js_path) && !file_exists($css_path)) return;
+
+  if (file_exists($css_path)) {
+    wp_enqueue_style(
+      'alexk-carousel-frontend',
+      $base_url . $css_rel,
+      [],
+      filemtime($css_path)
+    );
+  }
+
+  if (file_exists($js_path)) {
+    wp_enqueue_script(
+      'alexk-carousel-frontend',
+      $base_url . $js_rel,
+      [],
+      filemtime($js_path),
+      true
+    );
+  }
+});
+
 
 /**
  * Shortcode output
