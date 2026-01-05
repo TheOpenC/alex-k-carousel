@@ -317,45 +317,53 @@ function alexk_wp_editor_resize_and_write_no_mkdir(string $src, string $dst, int
   return (!is_wp_error($saved) && !empty($saved['path']) && file_exists($saved['path']));
 }
 
-/**
+/** ==========================================
  * Frontend assets (loads JS/CSS for the carousel)
- * ENQUEUE OF JS FILES
- */
+ * ENQUEUE OF JS / CSS FILES
+ * ========================================== */
+
 add_action('wp_enqueue_scripts', function () {
+  // Only load assets on pages that actually contain the shortcode.
+  if (!is_singular()) return;
+
+  $post = get_post();
+  if (!$post) return;
+
+  if (!has_shortcode($post->post_content, 'alexk_carousel')) return;
+
   $base_url  = plugin_dir_url(__FILE__);
   $base_path = plugin_dir_path(__FILE__);
 
-  $js_rel  = 'js/alexk-carousel.js';
-  $css_rel = 'css/frontend.css';
+  $reset_rel = 'css/reset.css';
+  $css_rel   = 'css/frontend.css';
+  $js_rel    = 'js/alexk-carousel.js';
 
+  
 
-  $js_path  = $base_path . $js_rel;
-  $css_path = $base_path . $css_rel;
+    if (file_exists($base_path . $reset_rel)) {
+      wp_enqueue_style('alexk-carousel-page-reset', $base_url . $reset_rel, [], filemtime($base_path .  $reset_rel)
+      );
 
-  error_log('ALEXK enqueue base_path=' . $base_path . ' js_path=' . $js_path . ' js_exists=' . (file_exists($js_path) ? 'yes' : 'no'));
+      // remove later. css file enqueue confirmation:
+      wp_add_inline_style(
+        'alexk-carousel-frontend',
+        '/* alexk-carousel frontend css loaded */'
+        );
+    
+    }
+  
+  
 
-  // If files are missing, don't enqueue.
-  if (!file_exists($js_path) && !file_exists($css_path)) return;
-
-  if (file_exists($css_path)) {
-    wp_enqueue_style(
-      'alexk-carousel-frontend',
-      $base_url . $css_rel,
-      [],
-      filemtime($css_path)
-    );
+  if (file_exists($base_path . $css_rel)) {
+    wp_enqueue_style('alexk-carousel-frontend', $base_url . $css_rel, ['alexk-carousel-page-reset'], filemtime($base_path . $css_rel));
   }
 
-  if (file_exists($js_path)) {
-    wp_enqueue_script(
-      'alexk-carousel-frontend',
-      $base_url . $js_rel,
-      [],
-      filemtime($js_path),
-      true
-    );
+  if (file_exists($base_path . $js_rel)) {
+    wp_enqueue_script('alexk-carousel-frontend', $base_url . $js_rel, [], filemtime($base_path . $js_rel), true);
   }
 });
+
+
 
 
 /**
@@ -414,19 +422,31 @@ add_shortcode('alexk_carousel', function($atts = []) {
   if (empty($items)) return '';
 
   ob_start(); ?>
+<div class="alexk-carousel-page">
   <div class="alexk-carousel" data-images="<?php echo esc_attr(wp_json_encode($items)); ?>">
     <picture class="alexk-carousel-picture">
       <?php if (!empty($items[0]['webp_srcset'])): ?>
-        <source type="image/webp" srcset="<?php echo esc_attr($items[0]['webp_srcset']); ?>" sizes="100vw">
+        <source type="image/webp" srcset="<?php echo esc_attr($items[0]['webp_srcset']); ?>" 
+        sizes="(max-width: 1400px) 100vw, 1400px">
       <?php endif; ?>
+
       <?php if (!empty($items[0]['jpg_srcset'])): ?>
-        <source type="image/jpeg" srcset="<?php echo esc_attr($items[0]['jpg_srcset']); ?>" sizes="100vw">
+        <source type="image/jpeg" srcset="<?php echo esc_attr($items[0]['jpg_srcset']); ?>" 
+        sizes="(max-width: 1400px) 100vw, 1400px">
       <?php endif; ?>
-      <img class="alexk-carousel-image" src="<?php echo $items[0]['fallback']; ?>" alt="<?php echo $items[0]['alt']; ?>" loading="lazy" decoding="async">
+
+      <img class="alexk-carousel-image"
+           src="<?php echo $items[0]['fallback']; ?>"
+           alt="<?php echo $items[0]['alt']; ?>"
+           sizes="(max-width: 1400px) 100vw, 1400px"
+           loading="lazy"
+           decoding="async">
     </picture>
   </div>
-  <?php
-  return ob_get_clean();
+</div>
+<?php
+return ob_get_clean();
+
 });
 
 function alexk_path_to_upload_url(string $abs_path): string {

@@ -1,34 +1,107 @@
 /* /* =========================
    HOME — HARD RESET + MINIMAL CSS
    ========================= */
-html {
-    height: 100vh;
+ /* Public site: normal. Logged-in: prevent tiny doc scrollbars. */
+
+/* root sanity */
+/* --- ROOT CLAMP (logged-in only) --- */
+body.logged-in,
+body.logged-in html { /* (html selector doesn't work like this; keep body clamp below) */ }
+
+body.logged-in {
+  overflow: hidden;
+}
+/* Public site: normal. Logged-in: prevent tiny doc scrollbars. */
+html, body { 
+  margin: 0; 
+  height: 100%; 
 }
 
-body.home *,
-body.home *::before,
-body.home *::after {
-  box-sizing: border-box;
-} 
-body.home{
-    display: flex;
-    align-items: center;
-    height: 100vh; 
-    /* added */
-    justify-content: center;
-    margin: 0;
+
+/* Page wrapper: always fit inside the usable viewport */
+/* --- VIEWPORT BOX (admin-bar safe) --- */
+.alexk-carousel-page{
+  height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-body.home .wp-block-cover {
+body.admin-bar .alexk-carousel-page{
+  height: calc(100svh - var(--wp-admin--admin-bar--height, 32px));
+}
+/* body.logged-in { overflow: hidden; } */
+.alexk-carousel-page::before {
+  content: "alexk carousel CSS LOADED";
+  position: fixed;
+  top: 2rem;
+  left: 0;
+  z-index: 99999;
+  background: lime;
+  color: black;
+  font-size: 12px;
+  font-family: monospace;
+  padding: 4px 6px;
+}
+
+/* =========================
+   CAROUSEL PAGE — VIEWPORT FIT (ADMIN BAR SAFE)
+   ========================= */
+
+/* Root: remove default margins; clamp scroll while logged in/testing */
+html, body {
+  margin: 0;
+  height: 100%;
+}
+
+/* Optional during dev (prevents tiny root scrollbars while logged in) */
+/* html, body { overflow: hidden; } */
+
+/* The wrapper must be a *definite* height so children can use 100% */
+.alexk-carousel-page {
+  height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Logged in: subtract admin bar height from the wrapper height */
+body.admin-bar .alexk-carousel-page {
+  height: calc(100svh - var(--wp-admin--admin-bar--height, 32px));
+}
+
+/* The carousel box inherits the wrapper height */
+.alexk-carousel {
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  /* outline: 1px solid red; debug */
+}
+
+/* Make <picture> participate in the height chain */
+.alexk-carousel picture {
+  display: block;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* .alexk-carousel,
+.alexk-carousel-page,
+.alexk-carousel picture {
+  cursor: default;
+} */
+.alex-carousel{
+  cursor: default;
+}
+
+/* The image contains inside the carousel height */
+.alexk-carousel img {
+  display: block;
+  height: 100%;
   width: 100%;
-  margin-inline: auto;
-}
-
-/* Hide theme chrome */
-body.home header.site-header,
-body.home footer.site-footer {
-  display: none;
-}
-body.home {
-  overflow: hidden;   /* ← THIS is the scrollbar kill switch */
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: pointer
 }

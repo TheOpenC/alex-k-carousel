@@ -1,3 +1,5 @@
+/* This is the best version of frontend.css. It's only problem is that it shows pointers on the margins in landscape orientation. otherwise, it's great.  */
+
 /* /* =========================
    HOME — HARD RESET + MINIMAL CSS
    ========================= */
@@ -75,7 +77,7 @@ body.admin-bar .alexk-carousel-page {
   height: 100%;
   max-width: 100%;
   max-height: 100%;
-  /* outline: 1px solid red; debug */
+  outline: 1px solid red; /* debug */
 }
 
 /* Make <picture> participate in the height chain */
@@ -86,12 +88,8 @@ body.admin-bar .alexk-carousel-page {
   max-height: 100%;
 }
 
-/* .alexk-carousel,
 .alexk-carousel-page,
 .alexk-carousel picture {
-  cursor: default;
-} */
-.alex-carousel{
   cursor: default;
 }
 

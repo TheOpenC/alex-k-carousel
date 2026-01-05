@@ -1,497 +1,463 @@
 <?php
 /**
  * Plugin Name: Alex K - Client Image Carousel
- * Description: Simple image shuffle carousel for Alex Kwartler. Responsive images generated upon inclusion in image carousel.
- * Version: 0.1.0
- * Author: Drew Dudak
- * Text Domain: alexk-carousel
+ * Description: Adds "Include in carousel" checkbox and generates responsive JPG+WebP files in a per-image folder (Elementor-safe; no shell). Includes robust cancel to prevent folder reappearing on mid-run uncheck.
+ * Version: 0.2.6
  */
 
-if ( ! defined( 'ABSPATH' ) ) {
-    exit;
+if (!defined('ABSPATH')) exit;
+
+// Only keep WP thumbnails alongside the original.
+add_filter('intermediate_image_sizes_advanced', function($sizes) {
+  $keep = ['thumbnail', 'medium']; // adjust if you want ONLY thumbnail
+  return array_intersect_key($sizes, array_flip($keep));
+});
+
+// Prevent WP from creating the "-scaled" big image variant.
+add_filter('big_image_size_threshold', '__return_false');
+
+function alexk_carousel_widths(): array { return [320, 480, 768, 1024, 1400]; }
+function alexk_carousel_meta_key(): string { return 'alexk_include_in_carousel'; }
+
+// Cancellation is done via a filesystem marker OUTSIDE the output folder.
+// This avoids WP meta caching and still works across concurrent requests.
+function alexk_carousel_cancel_marker_path(int $attachment_id, string $file_path = ''): ?string {
+  if ($file_path === '') $file_path = get_attached_file($attachment_id);
+  if (!$file_path) return null;
+
+  $dir  = wp_normalize_path(dirname($file_path));
+  $base = basename($file_path);
+  $stem = preg_replace('/\.[^.]+$/', '', $base);
+
+  // Hidden cancel marker next to original, not inside output folder.
+  return $dir . '/.' . $stem . '_' . $attachment_id . '.alexk_cancel';
 }
 
+function alexk_carousel_output_dir_for_attachment(int $attachment_id, string $file_path = ''): ?string {
+  if ($file_path === '') $file_path = get_attached_file($attachment_id);
+  if (!$file_path) return null;
+
+  $dir  = wp_normalize_path(dirname($file_path));
+  $base = basename($file_path);
+  $stem = preg_replace('/\.[^.]+$/', '', $base);
+
+  // Folder name: {stem}_{id}
+  return $dir . '/' . $stem . '_' . $attachment_id;
+}
+
+function alexk_carousel_rmdir_recursive(string $dir): void {
+  if (!is_dir($dir)) return;
+  $it = new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS);
+  $ri = new RecursiveIteratorIterator($it, RecursiveIteratorIterator::CHILD_FIRST);
+  foreach ($ri as $file) {
+    /** @var SplFileInfo $file */
+    $path = $file->getPathname();
+    if ($file->isDir()) {
+      @rmdir($path);
+    } else {
+      @unlink($path);
+    }
+  }
+  @rmdir($dir);
+}
 
 /**
- * Carousel derivative storage:
- *   uploads/alexk-carousel/{attachment_id}/
- * This guarantees we never touch WordPress originals or WP-generated thumbnails.
+ * ADMIN: checkbox UI (Media)
  */
-function alexk_carousel_output_base(): array {
-    $u = wp_get_upload_dir();
-    $basedir = wp_normalize_path( $u['basedir'] ?? '' );
-    $baseurl = $u['baseurl'] ?? '';
-    return [
-        'dir' => $basedir ? ($basedir . '/alexk-carousel') : '',
-        'url' => $baseurl ? rtrim($baseurl, '/') . '/alexk-carousel' : '',
-    ];
-}
+add_filter('attachment_fields_to_edit', function($form_fields, $post) {
+  $key = alexk_carousel_meta_key();
+  $val = get_post_meta($post->ID, $key, true);
+  $checked = ($val === '1') ? 'checked' : '';
 
-function alexk_carousel_output_dir_for_attachment( int $attachment_id ): array {
-    $base = alexk_carousel_output_base();
-    $dir = $base['dir'] ? ($base['dir'] . '/' . $attachment_id) : '';
-    $url = $base['url'] ? ($base['url'] . '/' . $attachment_id) : '';
-    return ['dir' => $dir, 'url' => $url];
-}
+  $form_fields[$key] = [
+    'label' => 'Include in carousel',
+    'input' => 'html',
+    'html'  => '<label class="alexk-carousel-rightside-label">
+                  <input type="checkbox" class="carousel-checkbox" name="attachments['.$post->ID.']['.$key.']" value="1" '.$checked.' />
+                  Include in carousel
+                </label>
+                <div class="alexk-carousel-checkbox-details">
+                  When checked, generates responsive images and includes file in the image carousel queue.
+                </div>',
+  ];
 
-function alexk_recursive_delete_dir( string $dir ): void {
-    $dir = wp_normalize_path($dir);
-    if (!$dir || !is_dir($dir)) return;
+  return $form_fields;
+}, 10, 2);
 
-    $base = alexk_carousel_output_base();
-    // Safety: only delete under uploads/alexk-carousel
-    if (empty($base['dir']) || strpos($dir, $base['dir'] . '/') !== 0) return;
+/**
+ * Save handler
+ */
+add_filter('attachment_fields_to_save', function($post, $attachment) {
+  $key = alexk_carousel_meta_key();
+  $new = isset($attachment[$key]) && $attachment[$key] === '1' ? '1' : '0';
+  $old = get_post_meta($post['ID'], $key, true);
+  $old = ($old === '1') ? '1' : '0';
 
-    $it = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::CHILD_FIRST
-    );
-    foreach ($it as $fileinfo) {
-        /** @var SplFileInfo $fileinfo */
-        if ($fileinfo->isDir()) {
-            @rmdir($fileinfo->getPathname());
-        } else {
-            @unlink($fileinfo->getPathname());
-        }
+  update_post_meta($post['ID'], $key, $new);
+
+  $id = (int)$post['ID'];
+  $file = get_attached_file($id);
+
+  // Cancel marker path is derived from file; if file missing, just return.
+  $cancel_path = $file ? alexk_carousel_cancel_marker_path($id, $file) : null;
+
+  if ($new !== $old) {
+    if ($new === '1') {
+      // Clear any prior cancel marker BEFORE generating.
+      if ($cancel_path && file_exists($cancel_path)) {
+        @unlink($cancel_path);
+      }
+      alexk_generate_carousel_derivatives_for_attachment($id);
+    } else {
+      // Create cancel marker so any in-flight generator stops ASAP.
+      if ($cancel_path) {
+        @file_put_contents($cancel_path, (string)time());
+      }
+      alexk_delete_carousel_derivatives_for_attachment($id);
     }
-    @rmdir($dir);
-}
+  }
 
+  return $post;
+}, 10, 2);
 
-add_action('admin_init', function () {
-    if ( ! current_user_can('manage_options') ) return;
-    if ( get_option('alexk_img_engine_checked') ) return;
-
-    $editor = wp_get_image_editor( __DIR__ . '/README.md' ); // dummy; will fail, but we can still read the class availability
-    $has_imagick = class_exists('Imagick');
-    $has_gd = extension_loaded('gd');
-
-    error_log('ALEXK engine check: Imagick=' . ($has_imagick ? 'yes':'no') . ' GD=' . ($has_gd ? 'yes':'no'));
-
-    update_option('alexk_img_engine_checked', 1);
+/**
+ * Cleanup on permanent delete
+ */
+add_action('delete_attachment', function($attachment_id) {
+  alexk_delete_carousel_derivatives_for_attachment((int)$attachment_id);
 });
 
 /**
- * Disable WordPress intermediate image generation for PNG uploads.
- * We only want the ORIGINAL upload; carousel derivatives are opt-in.
+ * Derivative generation (no shell/exec)
  */
-add_filter( 'intermediate_image_sizes_advanced', function ( $sizes, $metadata ) {
-    if ( empty( $metadata['file'] ) ) {
-        return $sizes;
-    }
+function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id): void {
+  $file = get_attached_file($attachment_id);
+  if (!$file || !file_exists($file)) return;
 
-    $ext = strtolower( pathinfo( $metadata['file'], PATHINFO_EXTENSION ) );
+  $mime = get_post_mime_type($attachment_id);
+  if (!$mime || strpos($mime, 'image/') !== 0) return;
 
-    if ( $ext === 'png' ) {
-        return [];
-    }
+  $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+  if (in_array($ext, ['svg', 'pdf'], true)) return;
 
-    return $sizes;
-}, 10, 2 );
+  $out_dir = alexk_carousel_output_dir_for_attachment($attachment_id, $file);
+  if (!$out_dir) return;
 
-/**
- * Basic plugin constants (keeps paths/URLs consistent and readable).
- */
-define( 'ALEXK_CAROUSEL_VERSION', '0.1.0' );
+  $cancel_path = alexk_carousel_cancel_marker_path($attachment_id, $file);
+  if (!$cancel_path) return;
 
-define( 'ALEXK_CAROUSEL_PATH', plugin_dir_path( __FILE__ ) );
-define( 'ALEXK_CAROUSEL_URL',  plugin_dir_url( __FILE__ ) );
+  // If canceled already, do nothing.
+  if (file_exists($cancel_path)) return;
 
-/**
- * Enqueue frontend assets (CSS + JS) for the carousel.
- * Uses filemtime() so browsers auto-refresh when you change files.
- */
-function alexk_enqueue_frontend_assets() {
+  // Create output dir ONCE. After this point, we never mkdir again.
+  if (!is_dir($out_dir)) {
+    wp_mkdir_p($out_dir);
+  }
+  if (!is_dir($out_dir)) return;
 
-	$use_filemtime = defined( 'WP_DEBUG' ) && WP_DEBUG;
+  $base = basename($file);
+  $stem = preg_replace('/\.[^.]+$/', '', $base);
 
-	$css_rel  = 'css/frontend.css';
-	$css_file = ALEXK_CAROUSEL_PATH . $css_rel;
+  $info = @getimagesize($file);
+  if (!$info || empty($info[0]) || empty($info[1])) return;
+  $native_w = (int)$info[0];
+  $native_h = (int)$info[1];
+  $native_max = max($native_w, $native_h);
+  if ($native_max <= 0) return;
 
-	wp_enqueue_style(
-		'alexk-carousel-frontend',
-		ALEXK_CAROUSEL_URL . $css_rel,
-		[],
-		( $use_filemtime && file_exists( $css_file ) )
-			? filemtime( $css_file )
-			: ALEXK_CAROUSEL_VERSION
-	);
+  $widths = alexk_carousel_widths();
+  $max_list = max($widths);
+  if ($native_max < $max_list) {
+    $widths[] = $native_max; // include native if smaller than 1400
+    $widths = array_values(array_unique($widths));
+    sort($widths);
+  }
 
-	$js_rel  = 'js/alexk-carousel.js';
-	$js_file = ALEXK_CAROUSEL_PATH . $js_rel;
+  $largest_generated = 0;
 
-	wp_enqueue_script(
-		'alexk-carousel-js',
-		ALEXK_CAROUSEL_URL . $js_rel,
-		[],
-		( $use_filemtime && file_exists( $js_file ) )
-			? filemtime( $js_file )
-			: ALEXK_CAROUSEL_VERSION,
-		true
-	);
+  foreach ($widths as $w) {
+    // Hard cancel: if user unchecked, OR output folder was deleted mid-run, abort.
+    if (file_exists($cancel_path)) return;
+    if (!is_dir($out_dir)) return;
+
+    $w = (int)$w;
+    if ($w <= 0) continue;
+    if ($w > $native_max) continue; // no upscaling
+
+    $out_webp = $out_dir . '/' . $stem . '-w' . $w . '.webp';
+    $out_jpg  = $out_dir . '/' . $stem . '-w' . $w . '.jpg';
+
+    // If folder deleted after our is_dir check, these should fail rather than recreate.
+    $ok_webp = alexk_resize_and_write_no_mkdir($file, $out_webp, $w, 'webp', $cancel_path, $out_dir);
+    $ok_jpg  = alexk_resize_and_write_no_mkdir($file, $out_jpg,  $w, 'jpg',  $cancel_path, $out_dir);
+
+    if ($ok_webp || $ok_jpg) $largest_generated = max($largest_generated, $w);
+  }
+
+  // Convenience siblings inside the folder
+  if ($largest_generated > 0) {
+    if (file_exists($cancel_path)) return;
+    if (!is_dir($out_dir)) return;
+
+    $src_webp = $out_dir . '/' . $stem . '-w' . $largest_generated . '.webp';
+    $src_jpg  = $out_dir . '/' . $stem . '-w' . $largest_generated . '.jpg';
+
+    $dst_webp = $out_dir . '/' . $stem . '-carousel.webp';
+    $dst_jpg  = $out_dir . '/' . $stem . '-carousel.jpg';
+
+    if (file_exists($src_webp)) @copy($src_webp, $dst_webp);
+    if (file_exists($src_jpg))  @copy($src_jpg,  $dst_jpg);
+  }
 }
 
-add_action( 'wp_enqueue_scripts', 'alexk_enqueue_frontend_assets' );
+function alexk_delete_carousel_derivatives_for_attachment(int $attachment_id): void {
+  $file = get_attached_file($attachment_id);
+  if (!$file) return;
 
-/**
- * ======================================================
- * IMPORTANT CHANGE (Jan 2026)
- * We do NOT generate any responsive derivatives on upload anymore.
- * Upload should store ONLY the original.
- *
- * Derivatives are generated ONLY when the user checks
- * "Add to carousel" in the Media Library.
- * ======================================================
- */
+  $out_dir = alexk_carousel_output_dir_for_attachment($attachment_id, $file);
+  if (!$out_dir) return;
 
-/**
- * Generate responsive siblings for a single attachment.
- * - Writes next to the original upload.
- * - Skips files that already exist.
- * - Logs errors only.
- */
-function alexk_generate_carousel_derivatives_for_attachment( $attachment_id ) {
-    if ( ! wp_attachment_is_image( $attachment_id ) ) {
-        return;
-    }
-
-    $src_file = get_attached_file( $attachment_id );
-    if ( ! $src_file || ! file_exists( $src_file ) ) {
-        error_log( 'ALEXK generate: missing source for attachment_id=' . $attachment_id );
-        return;
-    }
-
-    $ext = strtolower( pathinfo( $src_file, PATHINFO_EXTENSION ) );
-    $allowed_exts = [ 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'gif', 'bmp', 'heic', 'heif', 'webp', 'avif' ];
-    if ( ! in_array( $ext, $allowed_exts, true ) ) {
-        return;
-    }
-
-    // Output folder (flag/namespace)
-    $out = alexk_carousel_output_dir_for_attachment( (int) $attachment_id );
-    if ( empty( $out['dir'] ) ) {
-        error_log( 'ALEXK generate: uploads dir unavailable for attachment_id=' . $attachment_id );
-        return;
-    }
-    wp_mkdir_p( $out['dir'] );
-
-    // Use the original stem for derivative filenames
-    $stem = preg_replace( '/\.[^.]+$/', '', basename( $src_file ) );
-
-    // Copy source into output folder so convert-one.sh writes derivatives there (it always writes next to its input).
-    $local_src = $out['dir'] . '/' . $stem . '.' . $ext;
-    if ( ! @copy( $src_file, $local_src ) ) {
-        error_log( 'ALEXK generate: failed to copy source into output folder. attachment_id=' . $attachment_id );
-        return;
-    }
-
-    // Run the converter against the copied source
-    $plugin_dir = plugin_dir_path( __FILE__ );
-    $script     = $plugin_dir . 'bin/convert-one.sh';
-
-    // NOTE: Elementor Hosting blocks exec(); this is for Local dev. We'll swap to PHP/Imagick later.
-    $cmd = 'bash ' . escapeshellarg( $script ) . ' ' . escapeshellarg( $local_src ) . ' 2>&1';
-    $output = [];
-    $code   = 0;
-    exec( $cmd, $output, $code );
-
-    // Remove the copied source immediately so uncheck can safely delete the folder.
-    @unlink( $local_src );
-
-    if ( $code !== 0 ) {
-        error_log( 'ALEXK generate: convert-one.sh exit=' . $code . ' attachment_id=' . $attachment_id );
-        if ( ! empty( $output ) ) {
-            error_log( "ALEXK generate: output:\n" . implode( "\n", $output ) );
-        }
-        return;
-    }
-
-    // Optional: ensure convenience siblings are uniquely named in this folder (no collision with originals).
-    // If your script already creates <stem>.webp/.jpg here, that's fine because it's isolated in the folder.
-}
-
-
-/**
- * Delete responsive siblings for a single attachment.
- * Deletes only files we create:
- *   <stem>-w{320,480,768,1024,1400}.{jpg,webp}
- * and (optionally) <stem>.jpg / <stem>.webp ONLY if they are NOT the original upload.
- */
-function alexk_delete_carousel_derivatives_for_attachment( $attachment_id ) {
-    $out = alexk_carousel_output_dir_for_attachment( (int) $attachment_id );
-    if ( empty( $out['dir'] ) ) return;
-
-    alexk_recursive_delete_dir( $out['dir'] );
-}
-
-
-
-/**
- * If an attachment is permanently deleted from the Media Library,
- * also delete our generated carousel derivatives from disk.
- *
- * NOTE: This runs inside wp_delete_attachment() *before* WordPress deletes
- * the original file, so we can still derive the stem/path safely.
- */
-function alexk_cleanup_carousel_derivatives_on_attachment_delete( $attachment_id ) {
-    alexk_delete_carousel_derivatives_for_attachment( $attachment_id );
-}
-add_action( 'delete_attachment', 'alexk_cleanup_carousel_derivatives_on_attachment_delete', 10, 1 );
-
-
-/**
- * ======================================================
- * Carousel helpers: derive sibling URLs next to original
- * ======================================================
- */
-function alexk_derive_sibling_url( $original_url, $new_ext ) {
-	return preg_replace( '/\.[a-zA-Z0-9]+$/', '.' . $new_ext, $original_url );
-}
-
-function alexk_sibling_file_exists_from_url( $url ) {
-	$upload_dir = wp_get_upload_dir();
-	if ( empty( $upload_dir['baseurl'] ) || empty( $upload_dir['basedir'] ) ) {
-		return false;
-	}
-
-	if ( strpos( $url, $upload_dir['baseurl'] ) !== 0 ) {
-		return false;
-	}
-
-	$relative = ltrim( substr( $url, strlen( $upload_dir['baseurl'] ) ), '/' );
-	$path     = trailingslashit( $upload_dir['basedir'] ) . $relative;
-
-    error_log("ALEXK sibling check url=$url path=$path exists=" . (file_exists($path) ? 'yes' : 'no'));
-
-
-	return file_exists( $path ) && filesize( $path ) > 0;
+  // Delete only our folder; originals and WP thumbs remain untouched.
+  alexk_carousel_rmdir_recursive($out_dir);
 }
 
 /**
- * Shortcode: [alexk_carousel]
- * Outputs a <picture> so the browser chooses:
- *   WebP (lossless sibling) -> fallback original (JPEG/PNG/etc)
+ * Resize/write (Imagick first) — IMPORTANT: never mkdir here.
  */
-function alexk_carousel_shortcode( $atts = [] ) {
-	$atts = shortcode_atts(
-		[
-			'ids'     => '',
-			'limit'   => 1, // 0 = no limit, > 0 = cap pool size
-			'shuffle' => 1,
-		],
-		$atts,
-		'alexk_carousel'
-	);
+function alexk_resize_and_write_no_mkdir(string $src, string $dst, int $max_edge, string $format, string $cancel_path, string $out_dir): bool {
+  if (file_exists($cancel_path)) return false;
+  if (!is_dir($out_dir)) return false;
 
-	$limit   = max( 0, (int) $atts['limit'] );
-	$shuffle = ( (int) $atts['shuffle'] === 1 );
-
-    $widths = [320, 480, 768, 1024, 1400];
-
-
-	/* 1) Build image ID list */
-	if ( ! empty( $atts['ids'] ) ) {
-		$ids = explode( ',', $atts['ids'] );
-		$ids = array_map( 'trim', $ids );
-		$ids = array_map( 'intval', $ids );
-		$ids = array_filter( $ids );
-		$ids = array_values( $ids );
-	} else {
-		$ids = get_posts(
-			[
-				'post_type'      => 'attachment',
-				'post_mime_type' => 'image',
-				'post_status'    => 'inherit',
-				'fields'         => 'ids',
-				'posts_per_page' => -1,
-				'meta_key'       => '_alexk_include_in_carousel',
-				'meta_value'     => '1',
-			]
-		);
-	}
-
-	if ( empty( $ids ) ) {
-		return '<div class="alexk-carousel__empty">No images selected for the carousel.</div>';
-	}
-
-	/* 2) Shuffle + limit pool */
-	if ( $shuffle ) {
-		shuffle( $ids );
-	}
-	if ( $limit > 0 ) {
-		$ids = array_slice( $ids, 0, $limit );
-	}
-
-	/* 3) Build image payload */
-	$images = [];
-
-	foreach ( $ids as $id ) {
-		$src = wp_get_attachment_url( $id ); // original (final fallback)
-        if ( ! $src ) {
-            continue;
-        }
-
-        $stem = preg_replace( '/\.[^.]+$/', '', basename( $src ) );
-
-        $widths = [ 320, 480, 768, 1024, 1400 ];
-        $webp_parts = [];
-        $jpg_parts  = [];
-
-        $out = alexk_carousel_output_dir_for_attachment( (int) $id );
-        $folder_has_any = false;
-
-        if ( ! empty( $out['dir'] ) && is_dir( $out['dir'] ) ) {
-            foreach ( $widths as $w ) {
-                $w = (int) $w;
-
-                $webp_path = $out['dir'] . '/' . $stem . '-w' . $w . '.webp';
-                if ( is_file( $webp_path ) ) {
-                    $webp_parts[] = esc_url_raw( $out['url'] . '/' . $stem . '-w' . $w . '.webp' ) . ' ' . $w . 'w';
-                    $folder_has_any = true;
-                }
-
-                $jpg_path = $out['dir'] . '/' . $stem . '-w' . $w . '.jpg';
-                if ( is_file( $jpg_path ) ) {
-                    $jpg_parts[] = esc_url_raw( $out['url'] . '/' . $stem . '-w' . $w . '.jpg' ) . ' ' . $w . 'w';
-                    $folder_has_any = true;
-                }
-            }
-        }
-
-        // Back-compat (older layout): look beside original if folder is empty.
-        if ( ! $folder_has_any ) {
-            foreach ( $widths as $w ) {
-                $webp_url = preg_replace( '/\.[a-zA-Z0-9]+$/', '-w' . $w . '.webp', $src );
-                if ( alexk_sibling_file_exists_from_url( $webp_url ) ) {
-                    $webp_parts[] = esc_url_raw( $webp_url ) . ' ' . $w . 'w';
-                }
-
-                $jpg_url = preg_replace( '/\.[a-zA-Z0-9]+$/', '-w' . $w . '.jpg', $src );
-                if ( alexk_sibling_file_exists_from_url( $jpg_url ) ) {
-                    $jpg_parts[] = esc_url_raw( $jpg_url ) . ' ' . $w . 'w';
-                }
-            }
-        }
-
-        // Prefer a generated JPG in the folder as <img src> when available.
-        $img_src = $src;
-        if ( $folder_has_any && ! empty( $out['dir'] ) ) {
-            $candidate_jpg = $out['dir'] . '/' . $stem . '.jpg';
-            $candidate_webp = $out['dir'] . '/' . $stem . '.webp';
-            if ( is_file( $candidate_jpg ) ) {
-                $img_src = esc_url_raw( $out['url'] . '/' . $stem . '.jpg' );
-            } elseif ( is_file( $candidate_webp ) ) {
-                $img_src = esc_url_raw( $out['url'] . '/' . $stem . '.webp' );
-            }
-        }
-
-$images[] = [
-        	'src'         => esc_url_raw( $img_src ),              // fallback <img> src
-        	'webp_srcset' => implode( ', ', $webp_parts ),        // your responsive webp set
-        	'jpg_srcset'  => implode( ', ', $jpg_parts ),         // your responsive jpg set
-        	'sizes'       => '90vw',
-        	'alt'         => get_post_meta( $id, '_wp_attachment_image_alt', true ) ?: '',
-        ];
-
-	}
-
-	if ( empty( $images ) ) {
-	return '<div class="alexk-carousel__empty">No valid images found.</div>';
-    }
-
-    /* 4) Initial image (server) */
-    $first       = $images[0];
-    $data_images = wp_json_encode( $images );
-
-    /* 5) Output */
-    $html  = '<div class="alexk-carousel" data-images=\'' . esc_attr( $data_images ) . '\'>';
-    $html .= '<button type="button" class="alexk-carousel__btn" aria-label="Show another image">';
-    $html .= '<picture class="alexk-carousel__picture">';
-
-    if ( ! empty( $first['webp_srcset'] ) ) {
-    	$html .= '<source type="image/webp" srcset="' . esc_attr( $first['webp_srcset'] ) . '" sizes="' . esc_attr( $first['sizes'] ) . '">';
-    }
-
-    $html .= '<img class="alexk-carousel__img" src="' . esc_url( $first['src'] ) . '"';
-
-    if ( ! empty( $first['jpg_srcset'] ) ) {
-    	$html .= ' srcset="' . esc_attr( $first['jpg_srcset'] ) . '"';
-    }
-
-    if ( ! empty( $first['sizes'] ) ) {
-    	$html .= ' sizes="' . esc_attr( $first['sizes'] ) . '"';
-    }
-
-    $html .= ' alt="' . esc_attr( $first['alt'] ) . '" loading="lazy" decoding="async" />';
-    $html .= '</picture>';
-    $html .= '</button>';
-    $html .= '</div>';
-
-    return $html;
-
-}
-add_shortcode( 'alexk_carousel', 'alexk_carousel_shortcode' );
-
-
-// ======================================================
-// Media Library: "Include in carousel" checkbox
-// ======================================================
-add_filter( 'attachment_fields_to_edit', 'alexk_add_carousel_checkbox_field', 10, 2 );
-function alexk_add_carousel_checkbox_field( $form_fields, $post ) {
-	$value = get_post_meta( $post->ID, '_alexk_include_in_carousel', true );
-
-	$form_fields['alexk_include_in_carousel'] = [
-		'label' => 'Main Page Image Carousel',
-		'input' => 'html',
-		'html'  => sprintf(
-			'<div class="alexk-carousel-rightside-container">
-				<label class="alexk-carousel-rightside-label">
-					<input class="carousel-checkbox"
-						type="checkbox"
-						name="attachments[%d][alexk_include_in_carousel]"
-						value="1"
-						%s
-					/>
-					Add to carousel.
-				</label>
-				<div class="alexk-carousel-checkbox-details">
-					When checked, this controls whether an image appears on the main page carousel.
-				</div>
-			</div>',
-			(int) $post->ID,
-			checked( $value, '1', false )
-		),
-	];
-
-	return $form_fields;
+  if (extension_loaded('imagick')) {
+    $ok = alexk_imagick_resize_and_write_no_mkdir($src, $dst, $max_edge, $format, $cancel_path, $out_dir);
+    if ($ok) return true;
+  }
+  return alexk_wp_editor_resize_and_write_no_mkdir($src, $dst, $max_edge, $format, $cancel_path, $out_dir);
 }
 
-add_filter( 'attachment_fields_to_save', 'alexk_save_carousel_checkbox_field', 10, 2 );
-function alexk_save_carousel_checkbox_field( $post, $attachment ) {
-	$attachment_id = (int) $post['ID'];
-	$was_checked   = get_post_meta( $attachment_id, '_alexk_include_in_carousel', true ) === '1';
-	$is_checked    = isset( $attachment['alexk_include_in_carousel'] ) && $attachment['alexk_include_in_carousel'] === '1';
+function alexk_imagick_resize_and_write_no_mkdir(string $src, string $dst, int $max_edge, string $format, string $cancel_path, string $out_dir): bool {
+  try {
+    if (file_exists($cancel_path)) return false;
+    if (!is_dir($out_dir)) return false;
 
-	// Transition: unchecked -> checked
-	if ( ! $was_checked && $is_checked ) {
-		update_post_meta( $attachment_id, '_alexk_include_in_carousel', '1' );
-		alexk_generate_carousel_derivatives_for_attachment( $attachment_id );
-		return $post;
-	}
+    $im = new Imagick();
+    $im->readImage($src);
 
-	// Transition: checked -> unchecked
-	if ( $was_checked && ! $is_checked ) {
-		delete_post_meta( $attachment_id, '_alexk_include_in_carousel' );
-		alexk_delete_carousel_derivatives_for_attachment( $attachment_id );
-		return $post;
-	}
+    if (method_exists($im, 'autoOrient')) $im->autoOrient();
+    if (defined('Imagick::COLORSPACE_SRGB')) @ $im->setImageColorspace(Imagick::COLORSPACE_SRGB);
 
-	// No transition (keep current state, do nothing else)
-	if ( $is_checked ) {
-		update_post_meta( $attachment_id, '_alexk_include_in_carousel', '1' );
-	} else {
-		delete_post_meta( $attachment_id, '_alexk_include_in_carousel' );
-	}
+    $w = $im->getImageWidth();
+    $h = $im->getImageHeight();
+    if ($w <= 0 || $h <= 0) return false;
 
-	return $post;
+    $long = max($w, $h);
+    if ($max_edge > $long) $max_edge = $long; // no upscale
+
+    $scale = $max_edge / $long;
+    $new_w = max(1, (int)round($w * $scale));
+    $new_h = max(1, (int)round($h * $scale));
+
+    $im->resizeImage($new_w, $new_h, Imagick::FILTER_LANCZOS, 1, true);
+    @ $im->stripImage();
+
+    if (file_exists($cancel_path)) return false;
+    if (!is_dir($out_dir)) return false;
+
+    if ($format === 'webp') {
+      $im->setImageFormat('webp');
+      $im->setImageCompressionQuality(100);
+    } else {
+      $im->setImageFormat('jpeg');
+      $im->setImageCompressionQuality(92);
+      @ $im->setOption('jpeg:sampling-factor', '4:4:4');
+    }
+
+    // Do NOT mkdir here. If folder was deleted, write should fail.
+    $ok = $im->writeImage($dst);
+    $im->clear();
+    $im->destroy();
+    return (bool)$ok;
+  } catch (Throwable $e) {
+    return false;
+  }
+}
+
+function alexk_wp_editor_resize_and_write_no_mkdir(string $src, string $dst, int $max_edge, string $format, string $cancel_path, string $out_dir): bool {
+  if (file_exists($cancel_path)) return false;
+  if (!is_dir($out_dir)) return false;
+
+  $editor = wp_get_image_editor($src);
+  if (is_wp_error($editor)) return false;
+
+  $size = $editor->get_size();
+  if (empty($size['width']) || empty($size['height'])) return false;
+
+  $w = (int)$size['width'];
+  $h = (int)$size['height'];
+  $long = max($w, $h);
+  if ($long <= 0) return false;
+
+  if ($max_edge > $long) $max_edge = $long;
+
+  $res = $editor->resize($max_edge, $max_edge, false);
+  if (is_wp_error($res)) return false;
+
+  if (file_exists($cancel_path)) return false;
+  if (!is_dir($out_dir)) return false;
+
+  if ($format === 'webp') {
+    $editor->set_quality(100);
+    $saved = $editor->save($dst, 'image/webp');
+  } else {
+    $editor->set_quality(92);
+    $saved = $editor->save($dst, 'image/jpeg');
+  }
+
+  
+  return (!is_wp_error($saved) && !empty($saved['path']) && file_exists($saved['path']));
+}
+
+/** ==========================================
+ * Frontend assets (loads JS/CSS for the carousel)
+ * ENQUEUE OF JS / CSS FILES
+ * ========================================== */
+
+add_action('wp_enqueue_scripts', function () {
+  // Only load assets on pages that actually contain the shortcode.
+  if (!is_singular()) return;
+
+  $post = get_post();
+  if (!$post) return;
+
+  if (!has_shortcode($post->post_content, 'alexk_carousel')) return;
+
+  $base_url  = plugin_dir_url(__FILE__);
+  $base_path = plugin_dir_path(__FILE__);
+
+  $reset_rel = 'css/reset.css';
+  $css_rel   = 'css/frontend.css';
+  $js_rel    = 'js/alexk-carousel.js';
+
+  
+
+    if (file_exists($base_path . $reset_rel)) {
+      wp_enqueue_style('alexk-carousel-page-reset', $base_url . $reset_rel, [], filemtime($base_path .  $reset_rel)
+      );
+
+      // remove later. css file enqueue confirmation:
+      wp_add_inline_style(
+        'alexk-carousel-frontend',
+        '/* alexk-carousel frontend css loaded */'
+        );
+    
+    }
+  
+  
+
+  if (file_exists($base_path . $css_rel)) {
+    wp_enqueue_style('alexk-carousel-frontend', $base_url . $css_rel, ['alexk-carousel-page-reset'], filemtime($base_path . $css_rel));
+  }
+
+  if (file_exists($base_path . $js_rel)) {
+    wp_enqueue_script('alexk-carousel-frontend', $base_url . $js_rel, [], filemtime($base_path . $js_rel), true);
+  }
+});
+
+
+
+
+/**
+ * Shortcode output
+ */
+add_shortcode('alexk_carousel', function($atts = []) {
+  $q = new WP_Query([
+    'post_type'      => 'attachment',
+    'post_status'    => 'inherit',
+    'posts_per_page' => -1,
+    'meta_key'       => alexk_carousel_meta_key(),
+    'meta_value'     => '1',
+  ]);
+
+  if (!$q->have_posts()) return '';
+
+  $items = [];
+  while ($q->have_posts()) {
+    $q->the_post();
+    $id = get_the_ID();
+    $file = get_attached_file($id);
+    if (!$file) continue;
+
+    $base = basename($file);
+    $stem = preg_replace('/\.[^.]+$/', '', $base);
+
+    $out_dir = alexk_carousel_output_dir_for_attachment($id, $file);
+    if (!$out_dir || !is_dir($out_dir)) continue;
+
+    $webp_srcset = [];
+    $jpg_srcset  = [];
+
+    foreach (alexk_carousel_widths() as $w) {
+      $p_webp = $out_dir . '/' . $stem . '-w' . $w . '.webp';
+      $p_jpg  = $out_dir . '/' . $stem . '-w' . $w . '.jpg';
+
+      if (file_exists($p_webp)) $webp_srcset[] = alexk_path_to_upload_url($p_webp) . " {$w}w";
+      if (file_exists($p_jpg))  $jpg_srcset[]  = alexk_path_to_upload_url($p_jpg)  . " {$w}w";
+    }
+
+    if (empty($webp_srcset) && empty($jpg_srcset)) continue;
+
+    $fallback = !empty($jpg_srcset)
+      ? alexk_path_to_upload_url($out_dir . '/' . $stem . '-carousel.jpg')
+      : alexk_path_to_upload_url($out_dir . '/' . $stem . '-carousel.webp');
+
+    $items[] = [
+      'webp_srcset' => implode(', ', $webp_srcset),
+      'jpg_srcset'  => implode(', ', $jpg_srcset),
+      'fallback'    => esc_url($fallback),
+      'alt'         => esc_attr(get_post_meta($id, '_wp_attachment_image_alt', true)),
+    ];
+  }
+  wp_reset_postdata();
+
+  if (empty($items)) return '';
+
+  ob_start(); ?>
+<div class="alexk-carousel-page">
+  <div class="alexk-carousel" data-images="<?php echo esc_attr(wp_json_encode($items)); ?>">
+    <picture class="alexk-carousel-picture">
+      <?php if (!empty($items[0]['webp_srcset'])): ?>
+        <source type="image/webp" srcset="<?php echo esc_attr($items[0]['webp_srcset']); ?>" 
+        sizes="(max-width: 1400px) 100vw, 1400px">
+      <?php endif; ?>
+
+      <?php if (!empty($items[0]['jpg_srcset'])): ?>
+        <source type="image/jpeg" srcset="<?php echo esc_attr($items[0]['jpg_srcset']); ?>" 
+        sizes="(max-width: 1400px) 100vw, 1400px">
+      <?php endif; ?>
+
+      <img class="alexk-carousel-image"
+           src="<?php echo $items[0]['fallback']; ?>"
+           alt="<?php echo $items[0]['alt']; ?>"
+           sizes="(max-width: 1400px) 100vw, 1400px"
+           loading="lazy"
+           decoding="async">
+    </picture>
+  </div>
+</div>
+<?php
+return ob_get_clean();
+
+});
+
+function alexk_path_to_upload_url(string $abs_path): string {
+  $uploads = wp_get_upload_dir();
+  $basedir = wp_normalize_path($uploads['basedir'] ?? '');
+  $baseurl = $uploads['baseurl'] ?? '';
+  $abs_path = wp_normalize_path($abs_path);
+
+  if ($basedir && strpos($abs_path, $basedir) === 0) {
+    $rel = ltrim(substr($abs_path, strlen($basedir)), '/');
+    return trailingslashit($baseurl) . str_replace(DIRECTORY_SEPARATOR, '/', $rel);
+  }
+  return '';
 }

@@ -1,7 +1,7 @@
 /* Wrapper you control */
-/* * {
+ /* * {
   outline: 1px solid red;
-} */
+}  */
 
 .media-modal .alexk-carousel-rightside-container {
   padding: 0;
@@ -38,3 +38,4 @@ body.post-php.post-type-attachment .alexk-carousel-checkbox-details{
 body.post-php.post-type-attachment span.alignleft {
   margin-top: -.55rem;
 }
+
