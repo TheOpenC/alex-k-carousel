@@ -1,288 +1,309 @@
-/**
- * admin-bulk.js
- * Adds "Add to carousel" + "Remove from carousel" buttons to Media Library grid Bulk Select toolbar.
- * Uses DOM selection (.attachments .attachment.selected) for reliability.
+/* js/admin-bulk.js (RESET + AMEND)
+ * AlexK Carousel — minimal, readable bulk UI
+ *
+ * Keeps the "green dot = in carousel" indicator and adds minimal bulk Add/Remove logic:
+ * - Green dot is visible in normal state AND bulk select state (only for included items)
+ * - Add/Remove buttons are ONLY visible in Bulk Select mode
+ * - Buttons only show when the action is actually possible for the current selection
+ * - Bulk actions update BOTH:
+ *     - server via AJAX (existing PHP handlers)
+ *     - client model so the checkbox UI reflects state immediately
+ * - After action, auto-exit Bulk Select (returns to normal library)
+ *
+ * Assumes PHP adds: response['alexk_in_carousel'] via wp_prepare_attachment_for_js (already in your plugin).
  */
 
-console.log('ALEXK BULK ✅ admin-bulk.js loaded', window.location.href);
-console.log('ALEXK BULK data:', window.ALEXK_BULK);
+(() => {
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-(function () {
-  function exitBulkModeAndRefresh() {
-  // 1) Clear selection highlight in the grid
-  document
-    .querySelectorAll('.attachments .attachment.selected')
-    .forEach((el) => el.classList.remove('selected'));
-
-  // 2) Turn off bulk mode by clicking the Bulk Select toggle (not Cancel)
-  // In WP grid, the same button usually toggles bulk mode on/off.
-  const bulkToggle = document.querySelector('.bulk-select-button');
-  if (bulkToggle && bulkToggle.classList.contains('active')) {
-    bulkToggle.click();
+  // ---------------------------
+  // Bulk mode detection (your WP 6.9 toolbar)
+  // ---------------------------
+  function isBulkModeActive() {
+    const toggle = $("button.select-mode-toggle-button");
+    if (!toggle) return false;
+    return (toggle.textContent || "").trim().toLowerCase() === "cancel";
   }
 
-  // 3) Force a refresh so the UI matches server truth (prevents “revert” weirdness)
-  // Keeps you on upload.php and returns to normal mode immediately.
-  window.location.reload();
-}
-
-
-  function getSelectedIdsFromDom() {
-    const nodes = document.querySelectorAll('.attachments .attachment.selected');
-    return [...nodes]
-      .map((n) => parseInt(n.getAttribute('data-id'), 10))
-      .filter(Number.isFinite);
+  function exitBulkSelectMode() {
+    const toggle = $("button.select-mode-toggle-button");
+    if (!toggle) return;
+    if ((toggle.textContent || "").trim().toLowerCase() === "cancel") toggle.click();
   }
 
-  async function postAjax(action, ids) {
-    const body = new URLSearchParams();
-    body.set('action', action);
-    body.set('nonce', window.ALEXK_BULK?.nonce || '');
-    body.set('ids', ids.join(','));
-
-    const res = await fetch(window.ajaxurl, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-      body: body.toString(),
-    });
-
-    return res.json();
+  // ---------------------------
+  // Green dot indicator
+  // ---------------------------
+  function ensureDotEl(tile) {
+    if (!tile) return null;
+    let dot = tile.querySelector(".alexk-carousel-dot");
+    if (dot) return dot;
+    dot = document.createElement("span");
+    dot.className = "alexk-carousel-dot";
+    dot.setAttribute("aria-hidden", "true");
+    tile.appendChild(dot);
+    return dot;
   }
-      // =================
-    // PROGRESS BAR
-    // ================
-    
-    function ensureProgressUi() {
-  if (document.getElementById('alexk-bulk-progress')) return;
 
-  const wrap = document.createElement('div');
-  wrap.id = 'alexk-bulk-progress';
-  wrap.style.position = 'fixed';
-  wrap.style.top = 'auto';
-  wrap.style.right = '16px';
-  wrap.style.bottom = '28px';
-  wrap.style.zIndex = '99999';
-  wrap.style.background = '#fff';
-  wrap.style.border = '1px solid #ccd0d4';
-  wrap.style.borderRadius = '8px';
-  wrap.style.padding = '10px 12px';
-  wrap.style.boxShadow = '0 2px 10px rgba(0,0,0,0.12)';
-  wrap.style.minWidth = '220px';
-  wrap.style.fontSize = '13px';
-  wrap.hidden = true;
-
-  const title = document.createElement('div');
-  title.id = 'alexk-bulk-progress-title';
-  title.style.marginBottom = '8px';
-  title.textContent = 'Working…';
-
-  const barOuter = document.createElement('div');
-  barOuter.style.height = '8px';
-  barOuter.style.background = '#f0f0f1';
-  barOuter.style.borderRadius = '999px';
-  barOuter.style.overflow = 'hidden';
-
-  const barInner = document.createElement('div');
-  barInner.id = 'alexk-bulk-progress-bar';
-  barInner.style.height = '100%';
-  barInner.style.width = '0%';
-  barInner.style.background = '#2271b1';
-
-  barOuter.appendChild(barInner);
-
-  const meta = document.createElement('div');
-  meta.id = 'alexk-bulk-progress-meta';
-  meta.style.marginTop = '8px';
-  meta.style.opacity = '0.8';
-  meta.textContent = '';
-
-  wrap.appendChild(title);
-  wrap.appendChild(barOuter);
-  wrap.appendChild(meta);
-  document.body.appendChild(wrap);
-}
-
-function showProgress(pending, done, mode) {
-  ensureProgressUi();
-
-  const wrap = document.getElementById('alexk-bulk-progress');
-  const title = document.getElementById('alexk-bulk-progress-title');
-  const bar = document.getElementById('alexk-bulk-progress-bar');
-  const meta = document.getElementById('alexk-bulk-progress-meta');
-
-  const verb = mode === 'remove' ? 'Deleting' : 'Generating';
-  const safePending = Math.max(0, pending);
-  const safeDone = Math.min(Math.max(0, done), safePending || done);
-
-  const pct = safePending > 0 ? Math.round((safeDone / safePending) * 100) : 0;
-
-  title.textContent = `${verb} images…`;
-  meta.textContent = `${safeDone} / ${safePending}`;
-  bar.style.width = `${pct}%`;
-  wrap.hidden = false;
-
-}
-
-function hideProgressSoon() {
-  const wrap = document.getElementById('alexk-bulk-progress');
-  if (!wrap) return;
-
-  setTimeout(() => {
-    wrap.hidden = true;
-
-  }, 1200);
-}
-
-let alexkProgressTimer = null;
-
-async function pollJobStatus() {
-  try {
-    const body = new URLSearchParams();
-    body.set('action', 'alexk_bulk_job_status');
-
-    const res = await fetch(window.ajaxurl, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-      body: body.toString(),
-    });
-
-    const json = await res.json();
-    if (!json?.success) return;
-
-    const pending = parseInt(json.data.pending, 10) || 0;
-    const done = parseInt(json.data.done, 10) || 0;
-    const mode = json.data.mode || '';
-
-    if (pending > 0 && done < pending) {
-      showProgress(pending, done, mode);
-      return;
+  function applyIncludedStateToTile(tile, included) {
+    if (!tile) return;
+    if (included) {
+      tile.classList.add("alexk-in-carousel");
+      ensureDotEl(tile);
+    } else {
+      tile.classList.remove("alexk-in-carousel");
+      const dot = tile.querySelector(".alexk-carousel-dot");
+      if (dot) dot.remove();
     }
-
-    // Done or idle
-    if (pending > 0 && done >= pending) {
-      showProgress(pending, done, mode);
-      hideProgressSoon();
-    }
-  } catch (e) {
-    // silent
   }
-}
 
-function startPollingProgress() {
-  if (alexkProgressTimer) clearInterval(alexkProgressTimer);
-  alexkProgressTimer = setInterval(pollJobStatus, 900);
-  pollJobStatus();
-}
+  function patchWpMediaAttachmentRender() {
+    const Attachment = window.wp?.media?.view?.Attachment;
+    if (!Attachment) return false;
 
-startPollingProgress();
+    const proto = Attachment.prototype;
+    if (proto.__alexkPatched) return true;
+    proto.__alexkPatched = true;
 
-
-// ==================
-// Button injection
-// ------------------
-
-
-  function injectButtons() {
-    const toolbar = document.querySelector('.media-toolbar.wp-filter');
-    if (!toolbar) return false;
-
-    // Prevent double-inject (either button present means we already injected)
-    if (document.getElementById('alexk-add-to-carousel')) return true;
-
-    // --- Add button ---
-    const addBtn = document.createElement('button');
-    addBtn.id = 'alexk-add-to-carousel';
-    addBtn.type = 'button';
-    addBtn.className = 'button button-primary';
-    addBtn.textContent = 'Add to carousel';
-
-    addBtn.addEventListener('click', async () => {
-      const ids = getSelectedIdsFromDom();
-
-      if (!ids.length) {
-        alert('No items selected');
-        return;
-      }
-
-      if (!confirm(`Add ${ids.length} item(s) to the carousel?`)) return;
-
+    const originalRender = proto.render;
+    proto.render = function (...args) {
+      const out = originalRender.apply(this, args);
       try {
-        const json = await postAjax('alexk_bulk_add_to_carousel', ids);
-        console.log('ALEXK BULK add response:', json);
+        const included = !!this.model?.get?.("alexk_in_carousel");
+        applyIncludedStateToTile(this.el, included);
+      } catch {}
+      return out;
+    };
 
-        if (!json?.success) {
-          alert(json?.data?.message || 'Bulk add failed (see console)');
-          return;
-        }
-
-        alert(`Added ${json.data.updated} item(s) to the carousel.`);
-        exitBulkModeAndRefresh();
-        startPollingProgress();
-
-
-      } catch (err) {
-        console.error('ALEXK BULK add network error:', err);
-        alert('Bulk add failed (network error).');
-      }
-    });
-
-
-
-
-
-    // --- Remove button ---
-    const removeBtn = document.createElement('button');
-    removeBtn.id = 'alexk-remove-from-carousel';
-    removeBtn.type = 'button';
-    removeBtn.className = 'button';
-    removeBtn.textContent = 'Remove from carousel';
-
-    removeBtn.addEventListener('click', async () => {
-      const ids = getSelectedIdsFromDom();
-
-      if (!ids.length) {
-        alert('No items selected');
-        return;
-      }
-
-      if (!confirm(`Remove ${ids.length} item(s) from the carousel?`)) return;
-
-      try {
-        const json = await postAjax('alexk_bulk_remove_from_carousel', ids);
-        console.log('ALEXK BULK remove response:', json);
-
-        if (!json?.success) {
-          alert(json?.data?.message || 'Remove failed (see console)');
-          return;
-        }
-
-        alert(`Removed ${json.data.updated} item(s) from the carousel.`);
-        exitBulkModeAndRefresh();
-        startPollingProgress();
-
-
-      } catch (err) {
-        console.error('ALEXK BULK remove network error:', err);
-        alert('Remove failed (network error).');
-      }
-    });
-
-    // Add both buttons to toolbar
-    toolbar.prepend(removeBtn);
-    toolbar.prepend(addBtn);
-
-    console.log('ALEXK BULK ✅ buttons injected into .media-toolbar.wp-filter');
     return true;
   }
 
-  // Try now
-  if (injectButtons()) return;
+  // ---------------------------
+  // Selection helpers
+  // ---------------------------
+  function selectedTiles() {
+    return $$(".attachments .attachment.selected");
+  }
 
-  // Otherwise wait for WP to render/replace the toolbar
-  const mo = new MutationObserver(() => {
-    if (injectButtons()) mo.disconnect();
-  });
-  mo.observe(document.documentElement, { childList: true, subtree: true });
+  function partitionSelection() {
+    const inCarousel = [];
+    const notInCarousel = [];
+    for (const el of selectedTiles()) {
+      const id = parseInt(el.getAttribute("data-id"), 10);
+      if (!Number.isFinite(id)) continue;
+      (el.classList.contains("alexk-in-carousel") ? inCarousel : notInCarousel).push(id);
+    }
+    return { inCarousel, notInCarousel };
+  }
+
+  // ---------------------------
+  // AJAX + model sync 
+  // ---------------------------
+  async function postAjax(action, ids) {
+    const body = new URLSearchParams();
+    body.set("action", action);
+    body.set("nonce", window.ALEXK_BULK?.nonce || "");
+    body.set("ids", (ids || []).join(","));
+
+    const res = await fetch(window.ajaxurl, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: body.toString(),
+    });
+    return res.json();
+  }
+
+  function setWpMediaModelFlag(id, included) {
+    try {
+      const att = window.wp?.media?.attachment?.(id);
+      if (!att || typeof att.set !== "function") return;
+
+      // Our UI flag
+      att.set("alexk_in_carousel", !!included);
+
+      // The actual meta key used by the checkbox UI
+      att.set("alexk_include_in_carousel", included ? "1" : "0");
+
+      if (typeof att.trigger === "function") att.trigger("change");
+    } catch {}
+  }
+
+
+  function updateUiForIds(ids, included) {
+    for (const id of ids) {
+      const tile = document.querySelector(`.attachments .attachment[data-id="${id}"]`);
+      if (tile) applyIncludedStateToTile(tile, included);
+      setWpMediaModelFlag(id, included);
+     
+
+    }
+  }
+
+  // ---------------------------
+  // Toolbar buttons (minimal)
+  // ---------------------------
+  function findToolbarContainer() {
+    const toolbar = $(".media-toolbar.wp-filter") || $(".media-toolbar");
+    if (!toolbar) return null;
+    return $(".media-toolbar-secondary", toolbar) || toolbar;
+  }
+
+  function ensureButtons() {
+    const container = findToolbarContainer();
+    if (!container) return false;
+
+    if (!$("#alexk-add-to-carousel")) {
+      const add = document.createElement("button");
+      add.id = "alexk-add-to-carousel";
+      add.type = "button";
+      add.className = "button button-primary";
+      add.textContent = "Add to carousel";
+      container.append(add);
+      add.addEventListener("click", onAdd);
+    }
+
+    if (!$("#alexk-remove-from-carousel")) {
+      const rm = document.createElement("button");
+      rm.id = "alexk-remove-from-carousel";
+      rm.type = "button";
+      rm.className = "button";
+      rm.textContent = "Remove from carousel";
+      container.append(rm);
+      rm.addEventListener("click", onRemove);
+    }
+
+    return true;
+  }
+
+  function updateButtonsVisibility() {
+    const add = $("#alexk-add-to-carousel");
+    const rm = $("#alexk-remove-from-carousel");
+    if (!add || !rm) return;
+
+    // Never show outside Bulk Select mode
+    if (!isBulkModeActive()) {
+      add.style.display = "none";
+      rm.style.display = "none";
+      return;
+    }
+
+    const { inCarousel, notInCarousel } = partitionSelection();
+    add.style.display = notInCarousel.length ? "" : "none";
+    rm.style.display = inCarousel.length ? "" : "none";
+  }
+
+  // ---------------------------
+  // Click handlers
+  // ---------------------------
+  async function onAdd() {
+    const { inCarousel, notInCarousel } = partitionSelection();
+    const toAdd = notInCarousel;
+    const skipped = inCarousel;
+
+    if (!toAdd.length) {
+      alert("All selected items are already in the carousel.");
+      return;
+    }
+
+    const msg = skipped.length
+      ? `Add ${toAdd.length} item(s) to the carousel?\n\nSkipping ${skipped.length} already included.`
+      : `Add ${toAdd.length} item(s) to the carousel?`;
+
+    if (!confirm(msg)) return;
+
+    const json = await postAjax("alexk_bulk_add_to_carousel", toAdd);
+    if (!json?.success) {
+      alert(json?.data?.message || "Bulk add failed.");
+      return;
+    }
+
+    // reload and exit bulk selection mode resets the state. Reload refreshes the checkbox. Both are essential.
+    updateUiForIds(toAdd, true);
+    alert(`Added ${json.data.updated} item(s).`);
+    exitBulkSelectMode();
+    updateButtonsVisibility();
+    window.location.reload();
+  }
+
+  async function onRemove() {
+    const { inCarousel, notInCarousel } = partitionSelection();
+    const toRemove = inCarousel;
+    const skipped = notInCarousel;
+
+    if (!toRemove.length) {
+      alert("None of the selected items are currently in the carousel.");
+      return;
+    }
+
+    const msg = skipped.length
+      ? `Remove ${toRemove.length} item(s) from the carousel?\n\nSkipping ${skipped.length} not in carousel.`
+      : `Remove ${toRemove.length} item(s) from the carousel?`;
+
+    if (!confirm(msg)) return;
+
+    const json = await postAjax("alexk_bulk_remove_from_carousel", toRemove);
+    if (!json?.success) {
+      alert(json?.data?.message || "Remove failed.");
+      return;
+    }
+
+     // reload and exit bulk selection mode resets the state. Reload refreshes the checkbox. Both are essential.
+    updateUiForIds(toRemove, false);
+    alert(`Removed ${json.data.updated} item(s).`);
+    exitBulkSelectMode();
+    updateButtonsVisibility();
+    window.location.reload();
+  }
+
+  // ---------------------------
+  // Observers (small)
+  // ---------------------------
+  function bindObservers() {
+    // Selection changes happen via clicks in the grid
+    document.addEventListener(
+      "click",
+      (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLElement)) return;
+
+        if (t.closest(".attachments") || t.closest("button.select-mode-toggle-button")) {
+          setTimeout(updateButtonsVisibility, 30);
+        }
+      },
+      true
+    );
+
+    // Toggle button text changes (Bulk select <-> Cancel)
+    const toggle = $("button.select-mode-toggle-button");
+    if (toggle) {
+      const mo = new MutationObserver(() => updateButtonsVisibility());
+      mo.observe(toggle, { childList: true, subtree: true, attributes: true });
+    }
+
+    // WP may re-render toolbar/tiles; re-ensure buttons and state
+    const domMo = new MutationObserver(() => {
+      ensureButtons();
+      updateButtonsVisibility();
+    });
+    domMo.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function boot() {
+    // Patch tile rendering for dot
+    if (!patchWpMediaAttachmentRender()) {
+      const mo = new MutationObserver(() => {
+        if (patchWpMediaAttachmentRender()) mo.disconnect();
+      });
+      mo.observe(document.documentElement, { childList: true, subtree: true });
+    }
+
+    ensureButtons();
+    updateButtonsVisibility();
+    bindObservers();
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
 })();

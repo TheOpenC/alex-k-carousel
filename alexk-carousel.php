@@ -1,39 +1,37 @@
 <?php
 /**
  * Plugin Name: Alex K - Client Image Carousel
- * Description: Adds "Include in carousel" checkbox and generates responsive JPG+WebP files in a per-image folder (Elementor-safe; no shell). Includes robust cancel to prevent folder reappearing on mid-run uncheck.
- * Version: 0.2.8
+ * Description: Adds an "Include in carousel" checkbox to attachments and generates responsive JPG + WebP derivatives in a per-image folder (Elementor-safe; no shell/exec). Includes bulk add/remove with a simple progress panel.
+ * Version: 0.2.9
  */
 
 if (!defined('ABSPATH')) exit;
 
+/* =========================================================
+ * CONFIG
+ * ======================================================= */
 
-add_action('admin_enqueue_scripts', function ($hook) {
-  if ($hook !== 'upload.php') return;
+function alexk_carousel_meta_key(): string { return 'alexk_include_in_carousel'; }
+function alexk_carousel_widths(): array { return [320, 480, 768, 1024, 1400]; }
 
-  wp_enqueue_script(
-    'alexk-carousel-admin-media',
-    plugins_url('alexk-carousel-admin-media.js', __FILE__),
-    [],
-    '0.0.1',
-    true
-  );
-});
-
-// Only keep WP thumbnails alongside the original.
+/**
+ * Keep WP's own thumbnails minimal (optional).
+ */
 add_filter('intermediate_image_sizes_advanced', function($sizes) {
-  $keep = ['thumbnail', 'medium']; // adjust if you want ONLY thumbnail
+  $keep = ['thumbnail', 'medium'];
   return array_intersect_key($sizes, array_flip($keep));
 });
 
-// Prevent WP from creating the "-scaled" big image variant.
+/**
+ * Prevent WP from creating the "-scaled" big-image variant.
+ */
 add_filter('big_image_size_threshold', '__return_false');
 
-function alexk_carousel_widths(): array { return [320, 480, 768, 1024, 1400]; }
-function alexk_carousel_meta_key(): string { return 'alexk_include_in_carousel'; }
 
-// Cancellation is done via a filesystem marker OUTSIDE the output folder.
-// This avoids WP meta caching and still works across concurrent requests.
+/* =========================================================
+ * PATH HELPERS
+ * ======================================================= */
+
 function alexk_carousel_cancel_marker_path(int $attachment_id, string $file_path = ''): ?string {
   if ($file_path === '') $file_path = get_attached_file($attachment_id);
   if (!$file_path) return null;
@@ -65,17 +63,32 @@ function alexk_carousel_rmdir_recursive(string $dir): void {
   foreach ($ri as $file) {
     /** @var SplFileInfo $file */
     $path = $file->getPathname();
-    if ($file->isDir()) {
-      @rmdir($path);
-    } else {
-      @unlink($path);
-    }
+    if ($file->isDir()) @rmdir($path);
+    else @unlink($path);
   }
   @rmdir($dir);
 }
 
+function alexk_path_to_upload_url(string $abs_path): string {
+  $uploads = wp_get_upload_dir();
+  $basedir = wp_normalize_path($uploads['basedir'] ?? '');
+  $baseurl = $uploads['baseurl'] ?? '';
+  $abs_path = wp_normalize_path($abs_path);
+
+  if ($basedir && strpos($abs_path, $basedir) === 0) {
+    $rel = ltrim(substr($abs_path, strlen($basedir)), '/');
+    return trailingslashit($baseurl) . str_replace(DIRECTORY_SEPARATOR, '/', $rel);
+  }
+  return '';
+}
+
+
+/* =========================================================
+ * ADMIN UI: Attachment checkbox + Media grid indicator
+ * ======================================================= */
+
 /**
- * ADMIN: checkbox UI (Media)
+ * Attachment edit sidebar checkbox (Media modal + attachment edit screen).
  */
 add_filter('attachment_fields_to_edit', function($form_fields, $post) {
   $key = alexk_carousel_meta_key();
@@ -90,7 +103,7 @@ add_filter('attachment_fields_to_edit', function($form_fields, $post) {
                   Include in carousel
                 </label>
                 <div class="alexk-carousel-checkbox-details">
-                  When checked, generates responsive images and includes file in the image carousel queue.
+                  When checked, this media item is included in the carousel and responsive images are generated.
                 </div>',
   ];
 
@@ -98,11 +111,12 @@ add_filter('attachment_fields_to_edit', function($form_fields, $post) {
 }, 10, 2);
 
 /**
- * Save handler
+ * Save handler for the checkbox.
  */
 add_filter('attachment_fields_to_save', function($post, $attachment) {
   $key = alexk_carousel_meta_key();
-  $new = isset($attachment[$key]) && $attachment[$key] === '1' ? '1' : '0';
+  $new = (isset($attachment[$key]) && $attachment[$key] === '1') ? '1' : '0';
+
   $old = get_post_meta($post['ID'], $key, true);
   $old = ($old === '1') ? '1' : '0';
 
@@ -110,22 +124,16 @@ add_filter('attachment_fields_to_save', function($post, $attachment) {
 
   $id = (int)$post['ID'];
   $file = get_attached_file($id);
-
-  // Cancel marker path is derived from file; if file missing, just return.
   $cancel_path = $file ? alexk_carousel_cancel_marker_path($id, $file) : null;
 
   if ($new !== $old) {
     if ($new === '1') {
       // Clear any prior cancel marker BEFORE generating.
-      if ($cancel_path && file_exists($cancel_path)) {
-        @unlink($cancel_path);
-      }
+      if ($cancel_path && file_exists($cancel_path)) @unlink($cancel_path);
       alexk_generate_carousel_derivatives_for_attachment($id);
     } else {
       // Create cancel marker so any in-flight generator stops ASAP.
-      if ($cancel_path) {
-        @file_put_contents($cancel_path, (string)time());
-      }
+      if ($cancel_path) @file_put_contents($cancel_path, (string)time());
       alexk_delete_carousel_derivatives_for_attachment($id);
     }
   }
@@ -134,15 +142,33 @@ add_filter('attachment_fields_to_save', function($post, $attachment) {
 }, 10, 2);
 
 /**
- * Cleanup on permanent delete
+ * Media Library grid "badge" support:
+ * Expose a boolean for each attachment to JS via wp_prepare_attachment_for_js.
  */
+add_filter('wp_prepare_attachment_for_js', function($response, $attachment, $meta) {
+  $id = (int)($attachment->ID ?? 0);
+  if ($id) {
+    $response['alexk_in_carousel'] = (get_post_meta($id, alexk_carousel_meta_key(), true) === '1');
+  } else {
+    $response['alexk_in_carousel'] = false;
+  }
+  return $response;
+}, 10, 3);
+
+
+/* =========================================================
+ * CLEANUP
+ * ======================================================= */
+
 add_action('delete_attachment', function($attachment_id) {
   alexk_delete_carousel_derivatives_for_attachment((int)$attachment_id);
 });
 
-/**
- * Derivative generation (no shell/exec)
- */
+
+/* =========================================================
+ * DERIVATIVE GENERATION (no shell/exec)
+ * ======================================================= */
+
 function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id): void {
   $file = get_attached_file($attachment_id);
   if (!$file || !file_exists($file)) return;
@@ -163,9 +189,7 @@ function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id):
   if (file_exists($cancel_path)) return;
 
   // Create output dir ONCE. After this point, we never mkdir again.
-  if (!is_dir($out_dir)) {
-    wp_mkdir_p($out_dir);
-  }
+  if (!is_dir($out_dir)) wp_mkdir_p($out_dir);
   if (!is_dir($out_dir)) return;
 
   $base = basename($file);
@@ -173,6 +197,7 @@ function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id):
 
   $info = @getimagesize($file);
   if (!$info || empty($info[0]) || empty($info[1])) return;
+
   $native_w = (int)$info[0];
   $native_h = (int)$info[1];
   $native_max = max($native_w, $native_h);
@@ -186,10 +211,21 @@ function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id):
     sort($widths);
   }
 
+  // Bulk UI: initialize per-file progress (optional)
+  $job = alexk_bulk_job_get();
+  if (!empty($job['pending']) && !empty($job['started'])) {
+    alexk_bulk_job_patch([
+      'current_attachment_id' => $attachment_id,
+      'current_filename'      => basename($file),
+      'file_pending'          => count($widths),
+      'file_done'             => 0,
+    ]);
+  }
+
   $largest_generated = 0;
 
   foreach ($widths as $w) {
-    // Hard cancel: if user unchecked, OR output folder was deleted mid-run, abort.
+    // Hard cancel: if user unchecked OR output folder deleted mid-run, abort.
     if (file_exists($cancel_path)) return;
     if (!is_dir($out_dir)) return;
 
@@ -200,14 +236,20 @@ function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id):
     $out_webp = $out_dir . '/' . $stem . '-w' . $w . '.webp';
     $out_jpg  = $out_dir . '/' . $stem . '-w' . $w . '.jpg';
 
-    // If folder deleted after our is_dir check, these should fail rather than recreate.
     $ok_webp = alexk_resize_and_write_no_mkdir($file, $out_webp, $w, 'webp', $cancel_path, $out_dir);
     $ok_jpg  = alexk_resize_and_write_no_mkdir($file, $out_jpg,  $w, 'jpg',  $cancel_path, $out_dir);
 
     if ($ok_webp || $ok_jpg) $largest_generated = max($largest_generated, $w);
+
+    // Bulk UI: bump file_done once per width step
+    $job = alexk_bulk_job_get();
+    if (!empty($job['pending']) && !empty($job['started'])) {
+      $done = (int)($job['file_done'] ?? 0);
+      alexk_bulk_job_patch(['file_done' => $done + 1]);
+    }
   }
 
-  // Convenience siblings inside the folder
+  // Convenience siblings inside the folder (for a stable "fallback" filename)
   if ($largest_generated > 0) {
     if (file_exists($cancel_path)) return;
     if (!is_dir($out_dir)) return;
@@ -221,6 +263,17 @@ function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id):
     if (file_exists($src_webp)) @copy($src_webp, $dst_webp);
     if (file_exists($src_jpg))  @copy($src_jpg,  $dst_jpg);
   }
+
+  // Bulk UI: clear "current file" display once this attachment finishes
+  $job = alexk_bulk_job_get();
+  if (!empty($job['pending']) && !empty($job['started'])) {
+    alexk_bulk_job_patch([
+      'current_attachment_id' => 0,
+      'current_filename'      => '',
+      'file_pending'          => 0,
+      'file_done'             => 0,
+    ]);
+  }
 }
 
 function alexk_delete_carousel_derivatives_for_attachment(int $attachment_id): void {
@@ -230,7 +283,6 @@ function alexk_delete_carousel_derivatives_for_attachment(int $attachment_id): v
   $out_dir = alexk_carousel_output_dir_for_attachment($attachment_id, $file);
   if (!$out_dir) return;
 
-  // Delete only our folder; originals and WP thumbs remain untouched.
   alexk_carousel_rmdir_recursive($out_dir);
 }
 
@@ -285,7 +337,6 @@ function alexk_imagick_resize_and_write_no_mkdir(string $src, string $dst, int $
       @ $im->setOption('jpeg:sampling-factor', '4:4:4');
     }
 
-    // Do NOT mkdir here. If folder was deleted, write should fail.
     $ok = $im->writeImage($dst);
     $im->clear();
     $im->destroy();
@@ -326,22 +377,18 @@ function alexk_wp_editor_resize_and_write_no_mkdir(string $src, string $dst, int
     $saved = $editor->save($dst, 'image/jpeg');
   }
 
-  
   return (!is_wp_error($saved) && !empty($saved['path']) && file_exists($saved['path']));
 }
 
-/** ==========================================
- * Frontend assets (loads JS/CSS for the carousel)
- * ENQUEUE OF JS / CSS FILES
- * ========================================== */
+
+/* =========================================================
+ * FRONTEND: enqueue assets + shortcode
+ * ======================================================= */
 
 add_action('wp_enqueue_scripts', function () {
-  // Only load assets on pages that actually contain the shortcode.
   if (!is_singular()) return;
-
   $post = get_post();
   if (!$post) return;
-
   if (!has_shortcode($post->post_content, 'alexk_carousel')) return;
 
   $base_url  = plugin_dir_url(__FILE__);
@@ -351,64 +398,16 @@ add_action('wp_enqueue_scripts', function () {
   $css_rel   = 'css/frontend.css';
   $js_rel    = 'js/alexk-carousel.js';
 
-  
-
-    if (file_exists($base_path . $reset_rel)) {
-      wp_enqueue_style('alexk-carousel-page-reset', $base_url . $reset_rel, [], filemtime($base_path .  $reset_rel)
-      );
-
-      // remove later. css file enqueue confirmation:
-      wp_add_inline_style(
-        'alexk-carousel-frontend',
-        '/* alexk-carousel frontend css loaded */'
-        );
-    
-    }
-  
-  
-
+  if (file_exists($base_path . $reset_rel)) {
+    wp_enqueue_style('alexk-carousel-page-reset', $base_url . $reset_rel, [], filemtime($base_path . $reset_rel));
+  }
   if (file_exists($base_path . $css_rel)) {
     wp_enqueue_style('alexk-carousel-frontend', $base_url . $css_rel, ['alexk-carousel-page-reset'], filemtime($base_path . $css_rel));
   }
-
   if (file_exists($base_path . $js_rel)) {
     wp_enqueue_script('alexk-carousel-frontend', $base_url . $js_rel, [], filemtime($base_path . $js_rel), true);
   }
 });
-
-/**====================
- * Enqueue - Admin: add bulk "Add to carousel" button on Media Library grid view. 
- ======================*/
-
-add_action('admin_enqueue_scripts', function ($hook) {
-  // Media Library page
-  if ($hook !== 'upload.php') return;
-
-
-  // Make sure WP's media JS exists
-  wp_enqueue_media();
-
-  // Load our script
-  $handle = 'alexk-carousel-admin-bulk';
-  $src    = plugins_url('js/admin-bulk.js', __FILE__);
-  wp_enqueue_script(
-    $handle, $src, array('media-views'), '0.1.0', true);
-
-  // Provide nonce for AJAX
-  $data = array(
-    'nonce' => wp_create_nonce('alexk_bulk_add_to_carousel'),
-  );
-
-  // Put that data on window.ALEXK_BULK
-  wp_add_inline_script($handle, 'window.ALEXK_BULK = ' . wp_json_encode($data) . ';', 'before');
-});
-
-
-
-/**============================
- * Shortcode output
- =============================*/
-
 
 add_shortcode('alexk_carousel', function($atts = []) {
   $q = new WP_Query([
@@ -425,6 +424,7 @@ add_shortcode('alexk_carousel', function($atts = []) {
   while ($q->have_posts()) {
     $q->the_post();
     $id = get_the_ID();
+
     $file = get_attached_file($id);
     if (!$file) continue;
 
@@ -467,15 +467,11 @@ add_shortcode('alexk_carousel', function($atts = []) {
   <div class="alexk-carousel" data-images="<?php echo esc_attr(wp_json_encode($items)); ?>">
     <picture class="alexk-carousel-picture">
       <?php if (!empty($items[0]['webp_srcset'])): ?>
-        <source type="image/webp" srcset="<?php echo esc_attr($items[0]['webp_srcset']); ?>" 
-        sizes="(max-width: 1400px) 100vw, 1400px">
+        <source type="image/webp" srcset="<?php echo esc_attr($items[0]['webp_srcset']); ?>" sizes="(max-width: 1400px) 100vw, 1400px">
       <?php endif; ?>
-
       <?php if (!empty($items[0]['jpg_srcset'])): ?>
-        <source type="image/jpeg" srcset="<?php echo esc_attr($items[0]['jpg_srcset']); ?>" 
-        sizes="(max-width: 1400px) 100vw, 1400px">
+        <source type="image/jpeg" srcset="<?php echo esc_attr($items[0]['jpg_srcset']); ?>" sizes="(max-width: 1400px) 100vw, 1400px">
       <?php endif; ?>
-
       <img class="alexk-carousel-image"
            src="<?php echo $items[0]['fallback']; ?>"
            alt="<?php echo $items[0]['alt']; ?>"
@@ -486,17 +482,37 @@ add_shortcode('alexk_carousel', function($atts = []) {
   </div>
 </div>
 <?php
-return ob_get_clean();
-
+  return ob_get_clean();
 });
 
-// ─────────────────────────────
-// BULK QUEUE + PROGRESS (WP-Cron)
-// ─────────────────────────────
 
-function alexk_bulk_job_key(): string {
-  return 'alexk_bulk_job';
-}
+/* =========================================================
+ * ADMIN: enqueue bulk UI + styles
+ * ======================================================= */
+
+add_action('admin_enqueue_scripts', function ($hook) {
+  if ($hook !== 'upload.php') return;
+  wp_enqueue_media();
+
+  $css_handle = 'alexk-carousel-admin';
+  $css_src = plugins_url('css/admin.css', __FILE__);
+  wp_enqueue_style($css_handle, $css_src, [], '0.2.9');
+
+  $js_handle = 'alexk-carousel-admin-bulk';
+  $js_src    = plugins_url('js/admin-bulk.js', __FILE__);
+  wp_enqueue_script($js_handle, $js_src, ['media-views'], '0.2.9', true);
+
+  wp_add_inline_script($js_handle, 'window.ALEXK_BULK = ' . wp_json_encode([
+    'nonce' => wp_create_nonce('alexk_bulk_add_to_carousel'),
+  ]) . ';', 'before');
+});
+
+
+/* =========================================================
+ * BULK QUEUE + PROGRESS (WP-Cron)
+ * ======================================================= */
+
+function alexk_bulk_job_key(): string { return 'alexk_bulk_job'; }
 
 function alexk_bulk_job_set(array $job): void {
   update_option(alexk_bulk_job_key(), $job, false);
@@ -507,7 +523,28 @@ function alexk_bulk_job_get(): array {
   return is_array($job) ? $job : [];
 }
 
-// Background: generate derivatives
+function alexk_bulk_job_patch(array $patch): void {
+  $job = alexk_bulk_job_get();
+  if (!is_array($job)) $job = [];
+  alexk_bulk_job_set(array_merge($job, $patch));
+}
+
+function alexk_bulk_job_clear(): void {
+  alexk_bulk_job_set([
+    'pending'               => 0,
+    'done'                  => 0,
+    'started'               => 0,
+    'mode'                  => '',
+    'current_attachment_id' => 0,
+    'current_filename'      => '',
+    'file_pending'          => 0,
+    'file_done'             => 0,
+  ]);
+}
+
+/**
+ * Cron worker: generate derivatives for one attachment
+ */
 add_action('alexk_do_generate_derivatives', function ($attachment_id) {
   $attachment_id = (int)$attachment_id;
   if (!$attachment_id) return;
@@ -517,11 +554,19 @@ add_action('alexk_do_generate_derivatives', function ($attachment_id) {
   $job = alexk_bulk_job_get();
   if (!empty($job['pending'])) {
     $job['done'] = (int)($job['done'] ?? 0) + 1;
+
+    if ((int)$job['done'] >= (int)$job['pending']) {
+      alexk_bulk_job_clear();
+      return;
+    }
+
     alexk_bulk_job_set($job);
   }
 }, 10, 1);
 
-// Background: delete derivatives
+/**
+ * Cron worker: delete derivatives for one attachment
+ */
 add_action('alexk_do_delete_derivatives', function ($attachment_id) {
   $attachment_id = (int)$attachment_id;
   if (!$attachment_id) return;
@@ -531,169 +576,130 @@ add_action('alexk_do_delete_derivatives', function ($attachment_id) {
   $job = alexk_bulk_job_get();
   if (!empty($job['pending'])) {
     $job['done'] = (int)($job['done'] ?? 0) + 1;
+
+    if ((int)$job['done'] >= (int)$job['pending']) {
+      alexk_bulk_job_clear();
+      return;
+    }
+
     alexk_bulk_job_set($job);
   }
 }, 10, 1);
 
 
-
-// ─────────────────────────────
-// BULK ADD AJAX HANDLER
-// Queues derivative generation via WP-Cron, returns immediately.
-// ─────────────────────────────
+/* =========================================================
+ * BULK AJAX: add/remove + job status
+ * ======================================================= */
 
 add_action('wp_ajax_alexk_bulk_add_to_carousel', function () {
-  // security
-  if (
-    !isset($_POST['nonce']) ||
-    !wp_verify_nonce($_POST['nonce'], 'alexk_bulk_add_to_carousel')
-  ) {
+  if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'alexk_bulk_add_to_carousel')) {
     wp_send_json_error(['message' => 'Invalid nonce'], 403);
   }
-
   if (!current_user_can('upload_files')) {
     wp_send_json_error(['message' => 'Permission denied'], 403);
   }
-
   if (empty($_POST['ids'])) {
     wp_send_json_error(['message' => 'No attachment IDs provided'], 400);
   }
 
   $ids = array_filter(array_map('intval', explode(',', (string) $_POST['ids'])));
-
-  // Track how many we accepted for processing
   $queued = 0;
 
   foreach ($ids as $attachment_id) {
     if (!$attachment_id) continue;
     if (get_post_type($attachment_id) !== 'attachment') continue;
 
-    // 1) Set meta immediately (so checkbox reflects inclusion right away)
     update_post_meta($attachment_id, alexk_carousel_meta_key(), '1');
 
-    // 2) Clear cancel marker BEFORE background generation
+    // Clear cancel marker BEFORE background generation
     $file = get_attached_file($attachment_id);
     if ($file) {
       $cancel_path = alexk_carousel_cancel_marker_path($attachment_id, $file);
-      if ($cancel_path && file_exists($cancel_path)) {
-        @unlink($cancel_path);
-      }
+      if ($cancel_path && file_exists($cancel_path)) @unlink($cancel_path);
     }
 
-    // 3) Queue derivative generation (do NOT run it inline here)
-    wp_schedule_single_event(time() + 1, 'alexk_do_generate_derivatives', [$attachment_id]);
-
-    $queued++;
+    $when = time() + 1;
+    $scheduled = wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
+    if ($scheduled) $queued++;
   }
 
-  // Progress tracker (optional, but consistent)
   alexk_bulk_job_set([
     'pending' => $queued,
     'done'    => 0,
     'started' => time(),
     'mode'    => 'add',
+    'current_attachment_id' => 0,
+    'current_filename'      => '',
+    'file_pending'          => 0,
+    'file_done'             => 0,
   ]);
 
-  // Return immediately so the UI can reset without waiting
   wp_send_json_success(['updated' => $queued]);
 });
 
-
-// ─────────────────────────────
-// BULK REMOVE AJAX HANDLER
-// Queues derivative deletion via WP-Cron, returns immediately.
-// ─────────────────────────────
-
 add_action('wp_ajax_alexk_bulk_remove_from_carousel', function () {
-  // security
-  if (
-    !isset($_POST['nonce']) ||
-    !wp_verify_nonce($_POST['nonce'], 'alexk_bulk_add_to_carousel')
-  ) {
+  if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'alexk_bulk_add_to_carousel')) {
     wp_send_json_error(['message' => 'Invalid nonce'], 403);
   }
-
   if (!current_user_can('upload_files')) {
     wp_send_json_error(['message' => 'Permission denied'], 403);
   }
-
   if (empty($_POST['ids'])) {
     wp_send_json_error(['message' => 'No attachment IDs provided'], 400);
   }
 
   $ids = array_filter(array_map('intval', explode(',', (string) $_POST['ids'])));
-
   $queued = 0;
 
   foreach ($ids as $attachment_id) {
     if (!$attachment_id) continue;
     if (get_post_type($attachment_id) !== 'attachment') continue;
 
-    // 1) Set meta immediately (so checkbox reflects removal right away)
     update_post_meta($attachment_id, alexk_carousel_meta_key(), '0');
 
-    // 2) Create cancel marker so any in-flight generator stops ASAP
+    // Create cancel marker so any in-flight generator stops ASAP
     $file = get_attached_file($attachment_id);
     if ($file) {
       $cancel_path = alexk_carousel_cancel_marker_path($attachment_id, $file);
-      if ($cancel_path) {
-        @file_put_contents($cancel_path, (string) time());
-      }
+      if ($cancel_path) @file_put_contents($cancel_path, (string) time());
     }
 
-    // 3) Queue deletion (do NOT delete inline here)
-    wp_schedule_single_event(time() + 1, 'alexk_do_delete_derivatives', [$attachment_id]);
-
-    $queued++;
+    $when = time() + 1;
+    // ✅ correct hook for delete
+    $scheduled = wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
+    if ($scheduled) $queued++;
   }
 
-  // Progress tracker (optional but consistent)
   alexk_bulk_job_set([
     'pending' => $queued,
     'done'    => 0,
     'started' => time(),
     'mode'    => 'remove',
+    'current_attachment_id' => 0,
+    'current_filename'      => '',
+    'file_pending'          => 0,
+    'file_done'             => 0,
   ]);
 
   wp_send_json_success(['updated' => $queued]);
 });
 
-// ─────────────────────────────
-// BULK JOB STATUS AJAX (for UI progress)
-// ─────────────────────────────
 add_action('wp_ajax_alexk_bulk_job_status', function () {
   if (!current_user_can('upload_files')) {
     wp_send_json_error(['message' => 'Permission denied'], 403);
   }
 
   $job = alexk_bulk_job_get();
-  $pending = (int)($job['pending'] ?? 0);
-  $done    = (int)($job['done'] ?? 0);
-  $mode    = (string)($job['mode'] ?? '');
-  $started = (int)($job['started'] ?? 0);
 
   wp_send_json_success([
-    'pending' => $pending,
-    'done'    => $done,
-    'mode'    => $mode,
-    'started' => $started,
+    'pending'               => (int)($job['pending'] ?? 0),
+    'done'                  => (int)($job['done'] ?? 0),
+    'mode'                  => (string)($job['mode'] ?? ''),
+    'started'               => (int)($job['started'] ?? 0),
+
+    'current_attachment_id' => (int)($job['current_attachment_id'] ?? 0),
+    'current_filename'      => (string)($job['current_filename'] ?? ''),
+    'file_pending'          => (int)($job['file_pending'] ?? 0),
+    'file_done'             => (int)($job['file_done'] ?? 0),
   ]);
 });
-
-
-
-
-
-
-function alexk_path_to_upload_url(string $abs_path): string {
-  $uploads = wp_get_upload_dir();
-  $basedir = wp_normalize_path($uploads['basedir'] ?? '');
-  $baseurl = $uploads['baseurl'] ?? '';
-  $abs_path = wp_normalize_path($abs_path);
-
-  if ($basedir && strpos($abs_path, $basedir) === 0) {
-    $rel = ltrim(substr($abs_path, strlen($basedir)), '/');
-    return trailingslashit($baseurl) . str_replace(DIRECTORY_SEPARATOR, '/', $rel);
-  }
-  return '';
-}
