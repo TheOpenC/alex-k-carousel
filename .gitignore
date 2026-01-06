@@ -1,0 +1,31 @@
+/untracked(alexK)
+alexk-carousel.zip
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Node / tooling (if present anywhere)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# WordPress noise
+wp-config.php
+wp-content/uploads/
+wp-content/cache/
+wp-content/upgrade/
+
+# Local development / environment files
+.env
+.env.local
+.env.*.local
+
+# Build artifacts (if any)
+dist/
+build/
+
+# Local-only or generated project folders
+alexK/
