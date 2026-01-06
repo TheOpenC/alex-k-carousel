@@ -2,10 +2,23 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel
  * Description: Adds "Include in carousel" checkbox and generates responsive JPG+WebP files in a per-image folder (Elementor-safe; no shell). Includes robust cancel to prevent folder reappearing on mid-run uncheck.
- * Version: 0.2.6
+ * Version: 0.2.8
  */
 
 if (!defined('ABSPATH')) exit;
+
+
+add_action('admin_enqueue_scripts', function ($hook) {
+  if ($hook !== 'upload.php') return;
+
+  wp_enqueue_script(
+    'alexk-carousel-admin-media',
+    plugins_url('alexk-carousel-admin-media.js', __FILE__),
+    [],
+    '0.0.1',
+    true
+  );
+});
 
 // Only keep WP thumbnails alongside the original.
 add_filter('intermediate_image_sizes_advanced', function($sizes) {
@@ -363,12 +376,40 @@ add_action('wp_enqueue_scripts', function () {
   }
 });
 
+/**====================
+ * Enqueue - Admin: add bulk "Add to carousel" button on Media Library grid view. 
+ ======================*/
+
+add_action('admin_enqueue_scripts', function ($hook) {
+  // Media Library page
+  if ($hook !== 'upload.php') return;
+
+
+  // Make sure WP's media JS exists
+  wp_enqueue_media();
+
+  // Load our script
+  $handle = 'alexk-carousel-admin-bulk';
+  $src    = plugins_url('js/admin-bulk.js', __FILE__);
+  wp_enqueue_script(
+    $handle, $src, array('media-views'), '0.1.0', true);
+
+  // Provide nonce for AJAX
+  $data = array(
+    'nonce' => wp_create_nonce('alexk_bulk_add_to_carousel'),
+  );
+
+  // Put that data on window.ALEXK_BULK
+  wp_add_inline_script($handle, 'window.ALEXK_BULK = ' . wp_json_encode($data) . ';', 'before');
+});
 
 
 
-/**
+/**============================
  * Shortcode output
- */
+ =============================*/
+
+
 add_shortcode('alexk_carousel', function($atts = []) {
   $q = new WP_Query([
     'post_type'      => 'attachment',
@@ -448,6 +489,201 @@ add_shortcode('alexk_carousel', function($atts = []) {
 return ob_get_clean();
 
 });
+
+// ─────────────────────────────
+// BULK QUEUE + PROGRESS (WP-Cron)
+// ─────────────────────────────
+
+function alexk_bulk_job_key(): string {
+  return 'alexk_bulk_job';
+}
+
+function alexk_bulk_job_set(array $job): void {
+  update_option(alexk_bulk_job_key(), $job, false);
+}
+
+function alexk_bulk_job_get(): array {
+  $job = get_option(alexk_bulk_job_key(), []);
+  return is_array($job) ? $job : [];
+}
+
+// Background: generate derivatives
+add_action('alexk_do_generate_derivatives', function ($attachment_id) {
+  $attachment_id = (int)$attachment_id;
+  if (!$attachment_id) return;
+
+  alexk_generate_carousel_derivatives_for_attachment($attachment_id);
+
+  $job = alexk_bulk_job_get();
+  if (!empty($job['pending'])) {
+    $job['done'] = (int)($job['done'] ?? 0) + 1;
+    alexk_bulk_job_set($job);
+  }
+}, 10, 1);
+
+// Background: delete derivatives
+add_action('alexk_do_delete_derivatives', function ($attachment_id) {
+  $attachment_id = (int)$attachment_id;
+  if (!$attachment_id) return;
+
+  alexk_delete_carousel_derivatives_for_attachment($attachment_id);
+
+  $job = alexk_bulk_job_get();
+  if (!empty($job['pending'])) {
+    $job['done'] = (int)($job['done'] ?? 0) + 1;
+    alexk_bulk_job_set($job);
+  }
+}, 10, 1);
+
+
+
+// ─────────────────────────────
+// BULK ADD AJAX HANDLER
+// Queues derivative generation via WP-Cron, returns immediately.
+// ─────────────────────────────
+
+add_action('wp_ajax_alexk_bulk_add_to_carousel', function () {
+  // security
+  if (
+    !isset($_POST['nonce']) ||
+    !wp_verify_nonce($_POST['nonce'], 'alexk_bulk_add_to_carousel')
+  ) {
+    wp_send_json_error(['message' => 'Invalid nonce'], 403);
+  }
+
+  if (!current_user_can('upload_files')) {
+    wp_send_json_error(['message' => 'Permission denied'], 403);
+  }
+
+  if (empty($_POST['ids'])) {
+    wp_send_json_error(['message' => 'No attachment IDs provided'], 400);
+  }
+
+  $ids = array_filter(array_map('intval', explode(',', (string) $_POST['ids'])));
+
+  // Track how many we accepted for processing
+  $queued = 0;
+
+  foreach ($ids as $attachment_id) {
+    if (!$attachment_id) continue;
+    if (get_post_type($attachment_id) !== 'attachment') continue;
+
+    // 1) Set meta immediately (so checkbox reflects inclusion right away)
+    update_post_meta($attachment_id, alexk_carousel_meta_key(), '1');
+
+    // 2) Clear cancel marker BEFORE background generation
+    $file = get_attached_file($attachment_id);
+    if ($file) {
+      $cancel_path = alexk_carousel_cancel_marker_path($attachment_id, $file);
+      if ($cancel_path && file_exists($cancel_path)) {
+        @unlink($cancel_path);
+      }
+    }
+
+    // 3) Queue derivative generation (do NOT run it inline here)
+    wp_schedule_single_event(time() + 1, 'alexk_do_generate_derivatives', [$attachment_id]);
+
+    $queued++;
+  }
+
+  // Progress tracker (optional, but consistent)
+  alexk_bulk_job_set([
+    'pending' => $queued,
+    'done'    => 0,
+    'started' => time(),
+    'mode'    => 'add',
+  ]);
+
+  // Return immediately so the UI can reset without waiting
+  wp_send_json_success(['updated' => $queued]);
+});
+
+
+// ─────────────────────────────
+// BULK REMOVE AJAX HANDLER
+// Queues derivative deletion via WP-Cron, returns immediately.
+// ─────────────────────────────
+
+add_action('wp_ajax_alexk_bulk_remove_from_carousel', function () {
+  // security
+  if (
+    !isset($_POST['nonce']) ||
+    !wp_verify_nonce($_POST['nonce'], 'alexk_bulk_add_to_carousel')
+  ) {
+    wp_send_json_error(['message' => 'Invalid nonce'], 403);
+  }
+
+  if (!current_user_can('upload_files')) {
+    wp_send_json_error(['message' => 'Permission denied'], 403);
+  }
+
+  if (empty($_POST['ids'])) {
+    wp_send_json_error(['message' => 'No attachment IDs provided'], 400);
+  }
+
+  $ids = array_filter(array_map('intval', explode(',', (string) $_POST['ids'])));
+
+  $queued = 0;
+
+  foreach ($ids as $attachment_id) {
+    if (!$attachment_id) continue;
+    if (get_post_type($attachment_id) !== 'attachment') continue;
+
+    // 1) Set meta immediately (so checkbox reflects removal right away)
+    update_post_meta($attachment_id, alexk_carousel_meta_key(), '0');
+
+    // 2) Create cancel marker so any in-flight generator stops ASAP
+    $file = get_attached_file($attachment_id);
+    if ($file) {
+      $cancel_path = alexk_carousel_cancel_marker_path($attachment_id, $file);
+      if ($cancel_path) {
+        @file_put_contents($cancel_path, (string) time());
+      }
+    }
+
+    // 3) Queue deletion (do NOT delete inline here)
+    wp_schedule_single_event(time() + 1, 'alexk_do_delete_derivatives', [$attachment_id]);
+
+    $queued++;
+  }
+
+  // Progress tracker (optional but consistent)
+  alexk_bulk_job_set([
+    'pending' => $queued,
+    'done'    => 0,
+    'started' => time(),
+    'mode'    => 'remove',
+  ]);
+
+  wp_send_json_success(['updated' => $queued]);
+});
+
+// ─────────────────────────────
+// BULK JOB STATUS AJAX (for UI progress)
+// ─────────────────────────────
+add_action('wp_ajax_alexk_bulk_job_status', function () {
+  if (!current_user_can('upload_files')) {
+    wp_send_json_error(['message' => 'Permission denied'], 403);
+  }
+
+  $job = alexk_bulk_job_get();
+  $pending = (int)($job['pending'] ?? 0);
+  $done    = (int)($job['done'] ?? 0);
+  $mode    = (string)($job['mode'] ?? '');
+  $started = (int)($job['started'] ?? 0);
+
+  wp_send_json_success([
+    'pending' => $pending,
+    'done'    => $done,
+    'mode'    => $mode,
+    'started' => $started,
+  ]);
+});
+
+
+
+
+
 
 function alexk_path_to_upload_url(string $abs_path): string {
   $uploads = wp_get_upload_dir();

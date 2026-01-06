@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel
  * Description: Adds "Include in carousel" checkbox and generates responsive JPG+WebP files in a per-image folder (Elementor-safe; no shell). Includes robust cancel to prevent folder reappearing on mid-run uncheck.
- * Version: 0.2.6
+ * Version: 0.2.7
  */
 
 if (!defined('ABSPATH')) exit;

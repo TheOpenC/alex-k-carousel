@@ -105,3 +105,20 @@ body.admin-bar .alexk-carousel-page {
   object-fit: contain;
   cursor: pointer
 }
+
+.alexk-carousel {
+  width: min(1400px, 100%);
+  max-height: 1000px; /* or 1000px */
+}
+
+/* Desktop breathing room */
+.alexk-carousel-page {
+  padding: 4rem;
+}
+
+/* Mobile: remove padding so image can breathe edge-to-edge */
+@media (max-width: 768px) {
+  .alexk-carousel-page {
+    padding: 0;
+  }
+}
