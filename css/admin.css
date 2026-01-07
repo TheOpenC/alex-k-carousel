@@ -103,3 +103,27 @@ body.post-php.post-type-attachment span.alignleft {
 .upload-php .attachments .attachment.alexk-in-carousel .alexk-carousel-dot {
   background: limegreen; /* green */
 }
+
+/* Media Library list view — Carousel column */
+.wp-list-table .column-alexk_carousel {
+  width: 80px;
+  text-align: center;
+ 
+}
+
+.alexk-carousel-dot{
+  display:inline-block;
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  background:#20d000;
+  vertical-align:top;
+  margin-top: 4px;
+  
+  
+}
+
+#alexk_carousel, #author{
+  text-align: center;
+}
+

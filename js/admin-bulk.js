@@ -18,6 +18,109 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   // ---------------------------
+  // Page refresh when exiting single media view so the dot updates.
+  // ---------------------------
+  function isInSingleMediaView() {
+    // Attachment details view renders this panel inside the media modal
+    return !!document.querySelector(".media-modal .attachment-details");
+  }
+
+  function bindReloadOnExitSingleViewOnce() {
+    if (document.__alexkReloadOnExitSingleBound) return;
+    document.__alexkReloadOnExitSingleBound = true;
+
+    // Click the X (close modal)
+    document.addEventListener(
+      "click",
+      (e) => {
+        const el = e.target instanceof HTMLElement ? e.target : null;
+        if (!el) return;
+
+        const closeBtn = el.closest(".media-modal-close");
+        if (!closeBtn) return;
+
+        if (isInSingleMediaView()) {
+          // Let WP close the modal, then refresh to force grid state to reflect reality
+          setTimeout(() => window.location.reload(), 50);
+        }
+      },
+      true
+    );
+
+    // Escape key closes the modal too
+    document.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key !== "Escape") return;
+        if (isInSingleMediaView()) {
+          window.location.reload();
+        }
+      },
+      true
+    );
+  }
+
+  // ---------------------------
+  // Persist notice across reload (sessionStorage)
+  // ---------------------------
+  const ALEXK_NOTICE_KEY = "alexk_notice_after_reload";
+
+  function queueNoticeForAfterReload(message, type = "success") {
+    try {
+      sessionStorage.setItem(ALEXK_NOTICE_KEY, JSON.stringify({ message, type }));
+    } catch {}
+  }
+
+  function showQueuedNoticeIfAny() {
+    try {
+      const raw = sessionStorage.getItem(ALEXK_NOTICE_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(ALEXK_NOTICE_KEY);
+
+      const parsed = JSON.parse(raw);
+      if (parsed?.message) showWpNotice(parsed.message, parsed.type || "success");
+    } catch {}
+  }
+
+
+    // ---------------------------
+  // WP-style admin notice banner (like list view)
+  // ---------------------------
+  function showWpNotice(message, type = "success") {
+    // type: "success" | "error" | "warning" | "info"
+    const wrap = document.querySelector(".wrap");
+    if (!wrap) return;
+
+  
+    // Remove existing AlexK notice if present
+    const existing = wrap.querySelector(".notice.alexk-carousel-notice");
+    if (existing) existing.remove();
+
+    const notice = document.createElement("div");
+    notice.className = `notice notice-${type} is-dismissible alexk-carousel-notice`;
+    notice.innerHTML = `<p>${message}</p>`;
+
+    // Insert right under the H1 / header area
+    const h1 = wrap.querySelector("h1");
+    if (h1 && h1.parentNode) {
+      h1.parentNode.insertBefore(notice, h1.nextSibling);
+    } else {
+      wrap.insertBefore(notice, wrap.firstChild);
+    }
+
+    // Make the X button work (WP normally wires this, but we can do it ourselves)
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "notice-dismiss";
+    btn.innerHTML = `<span class="screen-reader-text">Dismiss this notice.</span>`;
+    btn.addEventListener("click", () => notice.remove());
+    notice.appendChild(btn);
+
+    // Scroll into view so user sees it
+    notice.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // ---------------------------
   // Bulk mode detection (your WP 6.9 toolbar)
   // ---------------------------
   function isBulkModeActive() {
@@ -78,6 +181,8 @@
 
     return true;
   }
+
+  
 
   // ---------------------------
   // Selection helpers
@@ -215,13 +320,13 @@
 
     const json = await postAjax("alexk_bulk_add_to_carousel", toAdd);
     if (!json?.success) {
-      alert(json?.data?.message || "Bulk add failed.");
+      showWpNotice(json?.data?.message || "Bulk add failed.", "error");
       return;
     }
 
     // reload and exit bulk selection mode resets the state. Reload refreshes the checkbox. Both are essential.
     updateUiForIds(toAdd, true);
-    alert(`Added ${json.data.updated} item(s).`);
+    queueNoticeForAfterReload(`Added ${json.data.updated} item(s) to the carousel.`, "success");
     exitBulkSelectMode();
     updateButtonsVisibility();
     window.location.reload();
@@ -245,13 +350,13 @@
 
     const json = await postAjax("alexk_bulk_remove_from_carousel", toRemove);
     if (!json?.success) {
-      alert(json?.data?.message || "Remove failed.");
+      showWpNotice(json?.data?.message || "Bulk remove failed.", "error");
       return;
     }
 
      // reload and exit bulk selection mode resets the state. Reload refreshes the checkbox. Both are essential.
     updateUiForIds(toRemove, false);
-    alert(`Removed ${json.data.updated} item(s).`);
+    queueNoticeForAfterReload(`Added ${json.data.updated} item(s) to the carousel.`, "success");
     exitBulkSelectMode();
     updateButtonsVisibility();
     window.location.reload();
@@ -291,6 +396,8 @@
   }
 
   function boot() {
+    // show notices 
+    showQueuedNoticeIfAny();
     // Patch tile rendering for dot
     if (!patchWpMediaAttachmentRender()) {
       const mo = new MutationObserver(() => {
@@ -298,6 +405,8 @@
       });
       mo.observe(document.documentElement, { childList: true, subtree: true });
     }
+
+    bindReloadOnExitSingleViewOnce();
 
     ensureButtons();
     updateButtonsVisibility();

@@ -82,17 +82,6 @@ function alexk_path_to_upload_url(string $abs_path): string {
   return '';
 }
 
-function alexk_schedule_generate_derivatives(int $attachment_id): void {
-  $hook = 'alexk_generate_derivatives_cron';
-  $args = [$attachment_id];
-
-  // Avoid duplicate jobs for the same attachment.
-  if (wp_next_scheduled($hook, $args)) return;
-
-  wp_schedule_single_event(time() + 5, $hook, $args);
-}
-
-
 
 /* =========================================================
  * ADMIN UI: Attachment checkbox + Media grid indicator
@@ -190,8 +179,7 @@ add_filter('handle_bulk_actions-upload', function (string $redirect_url, string 
 
     if ($action === 'alexk_add_to_carousel') {
       update_post_meta($id, $key, '1');
-      alexk_schedule_generate_derivatives($id); // <- returns immediately
-
+      alexk_generate_carousel_derivatives_for_attachment($id);
       $updated++;
     } else {
       update_post_meta($id, $key, '0');
@@ -687,18 +675,6 @@ add_action('alexk_do_generate_derivatives', function ($attachment_id) {
     alexk_bulk_job_set($job);
   }
 }, 10, 1);
-
-add_action('alexk_generate_derivatives_cron', function (int $attachment_id): void {
-  $attachment_id = (int) $attachment_id;
-  if ($attachment_id <= 0) return;
-
-  // Only generate if still included.
-  $key = alexk_carousel_meta_key();
-  if ((string) get_post_meta($attachment_id, $key, true) !== '1') return;
-
-  alexk_generate_carousel_derivatives_for_attachment($attachment_id);
-});
-
 
 /**
  * Cron worker: delete derivatives for one attachment
