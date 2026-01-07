@@ -220,25 +220,6 @@
     return res.json();
   }
 
-  // NEW CODE
-    // ---------------------------
-  // Elementor-safe progress pump:
-  // If PHP advances one item per "status" call, we must poll status to keep work moving.
-  // ---------------------------
-  function startBulkProgressPump() {
-    // Don't start twice
-    if (document.__alexkProgressPump) return;
-    document.__alexkProgressPump = true;
-
-    setInterval(async () => {
-      try {
-        // This call is what advances the queue in PHP (1 item per call) once we patch PHP.
-        await postAjax("alexk_bulk_job_status");
-      } catch {}
-    }, 1000);
-  }
-
-
   function setWpMediaModelFlag(id, included) {
     try {
       const att = window.wp?.media?.attachment?.(id);
@@ -375,7 +356,7 @@
 
      // reload and exit bulk selection mode resets the state. Reload refreshes the checkbox. Both are essential.
     updateUiForIds(toRemove, false);
-    queueNoticeForAfterReload(`Removed ${json.data.updated} item(s) to the carousel.`, "success");
+    queueNoticeForAfterReload(`Added ${json.data.updated} item(s) to the carousel.`, "success");
     exitBulkSelectMode();
     updateButtonsVisibility();
     window.location.reload();
@@ -417,9 +398,6 @@
   function boot() {
     // show notices 
     showQueuedNoticeIfAny();
-    // NEW CODE
-    startBulkProgressPump();
-
     // Patch tile rendering for dot
     if (!patchWpMediaAttachmentRender()) {
       const mo = new MutationObserver(() => {

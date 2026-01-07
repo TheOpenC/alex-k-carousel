@@ -30,10 +30,11 @@ html, body {
 body.admin-bar .alexk-carousel-page{
   height: calc(100svh - var(--wp-admin--admin-bar--height, 32px));
 }
+/* body.logged-in { overflow: hidden; } */
 
-/* Flag for enqueue confirmation */
+/* frontend.css enqueue tag */
 /* .alexk-carousel-page::before {
-  content: "frontend.css LOADED";
+  content: "frontend.css CSS LOADED";
   position: fixed;
   top: 2rem;
   left: 0;

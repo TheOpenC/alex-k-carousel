@@ -49,6 +49,7 @@ table {
 	border-spacing: 0;
 }
 
+/* reset.css enqueue flag */
 /* .alexk-carousel-page::after {
   content: "reset.css CSS LOADED";
   position: fixed;

@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Alex K - Client Image Carousel
- * Description: Image Carousel for displaying documentation. Process bulk carousel jobs via admin AJAX ticks instead of WP-Cron
- * Version: 0.3.2
+ * Description: Image Carousel for displaying documentation. 
+ * Version: 0.3.1
  */
 
 if (!defined('ABSPATH')) exit;
@@ -652,26 +652,11 @@ function alexk_bulk_job_patch(array $patch): void {
   if (!is_array($job)) $job = [];
   alexk_bulk_job_set(array_merge($job, $patch));
 }
-// Old version (cron)
-// function alexk_bulk_job_clear(): void {
-//   alexk_bulk_job_set([
-//     'pending'               => 0,
-//     'done'                  => 0,
-//     'started'               => 0,
-//     'mode'                  => '',
-//     'current_attachment_id' => 0,
-//     'current_filename'      => '',
-//     'file_pending'          => 0,
-//     'file_done'             => 0,
-//   ]);
-// }
 
 function alexk_bulk_job_clear(): void {
   alexk_bulk_job_set([
     'pending'               => 0,
     'done'                  => 0,
-    'total'                 => 0,
-    'queue'                 => [],
     'started'               => 0,
     'mode'                  => '',
     'current_attachment_id' => 0,
@@ -754,10 +739,7 @@ add_action('wp_ajax_alexk_bulk_add_to_carousel', function () {
   }
 
   $ids = array_filter(array_map('intval', explode(',', (string) $_POST['ids'])));
-  // $queued = 0; OLD CRON
-  $queued = count($ids);
-
-
+  $queued = 0;
 
   foreach ($ids as $attachment_id) {
     if (!$attachment_id) continue;
@@ -773,37 +755,20 @@ add_action('wp_ajax_alexk_bulk_add_to_carousel', function () {
     }
 
     $when = time() + 1;
-    // OLD CRON
-    // $scheduled = wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
-    // if ($scheduled) $queued++;
-    wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
-
+    $scheduled = wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
+    if ($scheduled) $queued++;
   }
-  // OLD CRON
-  // alexk_bulk_job_set([
-  //   'pending' => $queued,
-  //   'done'    => 0,
-  //   'started' => time(),
-  //   'mode'    => 'add',
-  //   'current_attachment_id' => 0,
-  //   'current_filename'      => '',
-  //   'file_pending'          => 0,
-  //   'file_done'             => 0,
-  // ]);
 
   alexk_bulk_job_set([
-  'pending' => $queued,
-  'done'    => 0,
-  'total'   => $queued,
-  'queue'   => array_values($ids),
-  'started' => time(),
-  'mode'    => 'add',
-  'current_attachment_id' => 0,
-  'current_filename'      => '',
-  'file_pending'          => 0,
-  'file_done'             => 0,
-]);
-
+    'pending' => $queued,
+    'done'    => 0,
+    'started' => time(),
+    'mode'    => 'add',
+    'current_attachment_id' => 0,
+    'current_filename'      => '',
+    'file_pending'          => 0,
+    'file_done'             => 0,
+  ]);
 
   wp_send_json_success(['updated' => $queued]);
 });
@@ -820,9 +785,7 @@ add_action('wp_ajax_alexk_bulk_remove_from_carousel', function () {
   }
 
   $ids = array_filter(array_map('intval', explode(',', (string) $_POST['ids'])));
-  // $queued = 0; OLD CRON
-  $queued = count($ids);
-
+  $queued = 0;
 
   foreach ($ids as $attachment_id) {
     if (!$attachment_id) continue;
@@ -838,61 +801,25 @@ add_action('wp_ajax_alexk_bulk_remove_from_carousel', function () {
     }
 
     $when = time() + 1;
-    // ✅ correct hook for delete OLD CRON
-    // $scheduled = wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
-    // if ($scheduled) $queued++;
-    wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
-
+    // ✅ correct hook for delete
+    $scheduled = wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
+    if ($scheduled) $queued++;
   }
-  // OLD CRON
-  // alexk_bulk_job_set([
-  //   'pending' => $queued,
-  //   'done'    => 0,
-  //   'started' => time(),
-  //   'mode'    => 'remove',
-  //   'current_attachment_id' => 0,
-  //   'current_filename'      => '',
-  //   'file_pending'          => 0,
-  //   'file_done'             => 0,
-  // ]);
 
   alexk_bulk_job_set([
-  'pending' => $queued,
-  'done'    => 0,
-  'total'   => $queued,
-  'queue'   => array_values($ids),
-  'started' => time(),
-  'mode'    => 'remove',
-  'current_attachment_id' => 0,
-  'current_filename'      => '',
-  'file_pending'          => 0,
-  'file_done'             => 0,
-]);
-
+    'pending' => $queued,
+    'done'    => 0,
+    'started' => time(),
+    'mode'    => 'remove',
+    'current_attachment_id' => 0,
+    'current_filename'      => '',
+    'file_pending'          => 0,
+    'file_done'             => 0,
+  ]);
 
   wp_send_json_success(['updated' => $queued]);
 });
 
-// OLD CRON
-// add_action('wp_ajax_alexk_bulk_job_status', function () {
-//   if (!current_user_can('upload_files')) {
-//     wp_send_json_error(['message' => 'Permission denied'], 403);
-//   }
-
-//   $job = alexk_bulk_job_get();
-
-//   wp_send_json_success([
-//     'pending'               => (int)($job['pending'] ?? 0),
-//     'done'                  => (int)($job['done'] ?? 0),
-//     'mode'                  => (string)($job['mode'] ?? ''),
-//     'started'               => (int)($job['started'] ?? 0),
-
-//     'current_attachment_id' => (int)($job['current_attachment_id'] ?? 0),
-//     'current_filename'      => (string)($job['current_filename'] ?? ''),
-//     'file_pending'          => (int)($job['file_pending'] ?? 0),
-//     'file_done'             => (int)($job['file_done'] ?? 0),
-//   ]);
-// });
 add_action('wp_ajax_alexk_bulk_job_status', function () {
   if (!current_user_can('upload_files')) {
     wp_send_json_error(['message' => 'Permission denied'], 403);
@@ -900,44 +827,9 @@ add_action('wp_ajax_alexk_bulk_job_status', function () {
 
   $job = alexk_bulk_job_get();
 
-  // Elementor-safe worker: advance 1 item per status poll
-  $mode  = (string)($job['mode'] ?? '');
-  $queue = $job['queue'] ?? [];
-  $total = (int)($job['total'] ?? ($job['pending'] ?? 0));
-
-
-  if (!empty($job['started']) && is_array($queue) && !empty($queue) && ($mode === 'add' || $mode === 'remove')) {
-    $attachment_id = (int)array_shift($queue);
-
-    if ($attachment_id > 0 && get_post_type($attachment_id) === 'attachment') {
-      if ($mode === 'add') {
-        alexk_generate_carousel_derivatives_for_attachment($attachment_id);
-      } else {
-        alexk_delete_carousel_derivatives_for_attachment($attachment_id);
-      }
-    }
-
-    // update job
-    $job['queue'] = array_values($queue);
-    $job['done']  = (int)($job['done'] ?? 0) + 1;
-    $job['pending'] = max(0, (int)($job['pending'] ?? 0) - 1);
-
-
-    // finish?
-    if ($total > 0 && (int)$job['done'] >= $total) {
-      alexk_bulk_job_clear();
-      $job = alexk_bulk_job_get(); // now cleared
-    } else {
-      alexk_bulk_job_set($job);
-    }
-  }
-
-  $job = alexk_bulk_job_get();
-
   wp_send_json_success([
     'pending'               => (int)($job['pending'] ?? 0),
     'done'                  => (int)($job['done'] ?? 0),
-    'total'                 => (int)($job['total'] ?? ($job['pending'] ?? 0)),
     'mode'                  => (string)($job['mode'] ?? ''),
     'started'               => (int)($job['started'] ?? 0),
 
