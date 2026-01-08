@@ -59,6 +59,8 @@
       true
     );
   }
+    
+  
 
   // ---------------------------
   // Persist notice across reload (sessionStorage)
@@ -117,8 +119,62 @@
     notice.appendChild(btn);
 
     // Scroll into view so user sees it
-    notice.scrollIntoView({ behavior: "smooth", block: "start" });
+    // notice.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  // UI progress element
+  function ensureProgressNoticeEl() {
+  const wrap = document.querySelector(".wrap");
+  if (!wrap) return null;
+
+  let el = wrap.querySelector(".notice.alexk-carousel-progress");
+  if (el) return el;
+
+  el = document.createElement("div");
+  el.className = "notice notice-info alexk-carousel-progress";
+  el.innerHTML = `<p><strong>Carousel job:</strong> <span class="alexk-progress-text">Starting…</span></p>`;
+
+  const h1 = wrap.querySelector("h1");
+  if (h1 && h1.parentNode) h1.parentNode.insertBefore(el, h1.nextSibling);
+  else wrap.insertBefore(el, wrap.firstChild);
+
+  return el;
+}
+
+function renderBulkProgress(data) {
+  const el = ensureProgressNoticeEl();
+  if (!el) return;
+
+  const mode = (data?.mode || "").toString();
+  const done = Number(data?.done ?? 0);
+  const total = Number(data?.total ?? 0);
+  const pending = Number(data?.pending ?? 0);
+
+  // Hide when no active job
+  if (!Number.isFinite(total) || total <= 0 || (!pending && !done)) {
+    el.remove();
+    return;
+  }
+
+  const file = (data?.current_filename || "").toString();
+  const fileDone = Number(data?.file_done ?? 0);
+  const filePending = Number(data?.file_pending ?? 0);
+
+  const modeLabel = mode === "remove" ? "Removing" : (mode === "add" ? "Adding" : "Working");
+
+  const filePart =
+    file && Number.isFinite(filePending) && filePending > 0
+      ? ` — ${fileDone}/${filePending} sizes: ${file}`
+      : file
+        ? ` — ${file}`
+        : "";
+
+  const text = `${modeLabel}: ${done}/${total} done (${pending} left)${filePart}`;
+
+  const span = el.querySelector(".alexk-progress-text");
+  if (span) span.textContent = text;
+}
+
 
   // ---------------------------
   // Bulk mode detection (your WP 6.9 toolbar)
@@ -210,8 +266,10 @@
     body.set("action", action);
     body.set("nonce", window.ALEXK_BULK?.nonce || "");
     body.set("ids", (ids || []).join(","));
-
-    const res = await fetch(window.ajaxurl, {
+    
+    
+    const ajaxUrl = window.ajaxurl || "/wp-admin/admin-ajax.php";
+    const res = await fetch(ajaxUrl, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
@@ -220,23 +278,49 @@
     return res.json();
   }
 
+  
+
+
+
   // NEW CODE
     // ---------------------------
   // Elementor-safe progress pump:
   // If PHP advances one item per "status" call, we must poll status to keep work moving.
   // ---------------------------
-  function startBulkProgressPump() {
-    // Don't start twice
-    if (document.__alexkProgressPump) return;
-    document.__alexkProgressPump = true;
 
-    setInterval(async () => {
-      try {
-        // This call is what advances the queue in PHP (1 item per call) once we patch PHP.
-        await postAjax("alexk_bulk_job_status");
-      } catch {}
-    }, 1000);
-  }
+  // NEW
+  function startBulkProgressPump() {
+  // Don't start twice
+  if (document.__alexkProgressPump) return;
+  document.__alexkProgressPump = true;
+
+  let inFlight = false;
+
+  const pumpId = setInterval(async () => {
+    if (inFlight) return; // prevents overlapping calls
+    inFlight = true;
+
+    try {
+      const json = await postAjax("alexk_bulk_job_status");
+      const total = Number(json?.data?.total ?? 0);
+      if (!Number.isFinite(total) || total <= 0) return; // no active job, do nothing
+
+      if (json?.data) renderBulkProgress(json.data);
+
+      // If the job is finished, stop polling to reduce load
+      const pending = Number(json?.data?.pending ?? 0);
+      if (Number.isFinite(pending) && pending <= 0) {
+        clearInterval(pumpId);
+        document.__alexkProgressPump = false;
+        return;
+      }
+    } catch {
+      // swallow errors (keeps behavior same as before)
+    } finally {
+      inFlight = false;
+    }
+  }, 1000);
+}  
 
 
   function setWpMediaModelFlag(id, included) {

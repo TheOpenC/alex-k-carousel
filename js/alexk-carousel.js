@@ -15,21 +15,36 @@ function onDomReady() {
   if (images.length === 0) return;
 
   const state = createCarouselState(images);
+  // OLD
+  // updateCarouselImage(imgElement, getNextImage(state));
+  // carousel.addEventListener('click', onCarouselClick);
 
-  updateCarouselImage(imgElement, getNextImage(state));
+  // PRELOAD
+  showNextAndPreload(carousel, imgElement, state);
   carousel.addEventListener('click', onCarouselClick);
 
   // store state on the carousel so the click handler can access it
   carousel._alexkCarousel = { imgElement: imgElement, state: state };
 }
 
+// OLD
+// function onCarouselClick(event) {
+//   const carousel = event.currentTarget;
+//   const store = carousel._alexkCarousel;
+//   if (!store) return;
+
+//   updateCarouselImage(store.imgElement, getNextImage(store.state));
+// }
+
+// PRELOAD
 function onCarouselClick(event) {
   const carousel = event.currentTarget;
   const store = carousel._alexkCarousel;
   if (!store) return;
 
-  updateCarouselImage(store.imgElement, getNextImage(store.state));
+  showNextAndPreload(carousel, store.imgElement, store.state);
 }
+
 
 function createCarouselState(images) {
   return {
@@ -43,6 +58,56 @@ function getNextImage(state) {
   if (!state) return null;
 
   // Refill + reshuffle when empty
+  // PRELOAD
+  ensureDeckReady(state);
+
+  // OLD
+  // if (!state.deck || state.deck.length === 0) {
+  //   let tries = 0;
+
+  //   do {
+  //     state.deck = state.allImages.slice();
+  //     shuffleInPlace(state.deck);
+  //     tries += 1;
+
+  //     // Break if we somehow can't avoid it (e.g., only 1 image)
+  //     if (tries > 10) break;
+
+  //     // If the next candidate (last element, since we pop) equals lastShown, reshuffle
+  //   } while (
+  //     state.lastShown &&
+  //     state.deck.length > 1 &&
+  //     state.deck[state.deck.length - 1].fallback === state.lastShown
+  //   );
+  // }
+
+  const next = state.deck.pop();
+  if (next && next.fallback) state.lastShown = next.fallback;
+  return next;
+}
+
+// PRELOAD
+function showNextAndPreload(carouselEl, imgElement, state) {
+  const current = getNextImage(state);
+  if (!current) return;
+
+  updateCarouselImage(imgElement, current);
+
+  const next = peekNextImage(state);
+  if (next) preloadImageForCarousel(carouselEl, next);
+}
+
+function peekNextImage(state) {
+  if (!state) return null;
+
+  ensureDeckReady(state);
+
+  if (!state.deck || state.deck.length === 0) return null;
+  return state.deck[state.deck.length - 1]; // peek (since getNextImage pops)
+}
+
+function ensureDeckReady(state) {
+  // Refill + reshuffle when empty (same logic as getNextImage)
   if (!state.deck || state.deck.length === 0) {
     let tries = 0;
 
@@ -51,21 +116,46 @@ function getNextImage(state) {
       shuffleInPlace(state.deck);
       tries += 1;
 
-      // Break if we somehow can't avoid it (e.g., only 1 image)
       if (tries > 10) break;
-
-      // If the next candidate (last element, since we pop) equals lastShown, reshuffle
     } while (
       state.lastShown &&
       state.deck.length > 1 &&
       state.deck[state.deck.length - 1].fallback === state.lastShown
     );
   }
-
-  const next = state.deck.pop();
-  if (next && next.fallback) state.lastShown = next.fallback;
-  return next;
 }
+
+function preloadImageForCarousel(carouselEl, imageObj) {
+  // Remove any previous preload so we only ever preload ONE “next” image
+  const existing = document.getElementById('alexk-carousel-preload-next');
+  if (existing) existing.remove();
+
+  const link = document.createElement('link');
+  link.id = 'alexk-carousel-preload-next';
+  link.rel = 'preload';
+  link.as = 'image';
+
+  // Always set an href
+  link.href = imageObj.fallback;
+
+  // If the browser supports responsive preload, give it the best candidates
+  const sizes =
+    imageObj.sizes ||
+    (carouselEl && carouselEl.querySelector('img') ? carouselEl.querySelector('img').sizes : '') ||
+    '100vw';
+
+  if (imageObj.webp_srcset) {
+    link.setAttribute('imagesrcset', imageObj.webp_srcset);
+    link.setAttribute('imagesizes', sizes);
+    link.type = 'image/webp';
+  } else if (imageObj.jpg_srcset) {
+    link.setAttribute('imagesrcset', imageObj.jpg_srcset);
+    link.setAttribute('imagesizes', sizes);
+    link.type = 'image/jpeg';
+  }
+
+  document.head.appendChild(link);
+} // END OF PRELOAD CODE
 
 // function createCarouselState(images) {
 //   const imageDeck = images.slice();   // copy (we will mutate the imageDeck)

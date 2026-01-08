@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Alex K - Client Image Carousel
- * Description: Image Carousel for displaying documentation. Process bulk carousel jobs via admin AJAX ticks instead of WP-Cron
- * Version: 0.3.2
+ * Description: Image Carousel for displaying documentation. 5 - 8 file Process bulk carousel jobs via admin AJAX ticks instead of WP-Cron. Fast version
+ * Version: 0.3.3
  */
 
 if (!defined('ABSPATH')) exit;
@@ -373,20 +373,23 @@ function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id):
     }
   }
 
+  //===============
+  // .carousel duplicates of source images. eliminated for performance
   // Convenience siblings inside the folder (for a stable "fallback" filename)
-  if ($largest_generated > 0) {
-    if (file_exists($cancel_path)) return;
-    if (!is_dir($out_dir)) return;
+  // if ($largest_generated > 0) {
+  //   if (file_exists($cancel_path)) return;
+  //   if (!is_dir($out_dir)) return;
 
-    $src_webp = $out_dir . '/' . $stem . '-w' . $largest_generated . '.webp';
-    $src_jpg  = $out_dir . '/' . $stem . '-w' . $largest_generated . '.jpg';
+  //   $src_webp = $out_dir . '/' . $stem . '-w' . $largest_generated . '.webp';
+  //   $src_jpg  = $out_dir . '/' . $stem . '-w' . $largest_generated . '.jpg';
 
-    $dst_webp = $out_dir . '/' . $stem . '-carousel.webp';
-    $dst_jpg  = $out_dir . '/' . $stem . '-carousel.jpg';
+  //   $dst_webp = $out_dir . '/' . $stem . '-carousel.webp';
+  //   $dst_jpg  = $out_dir . '/' . $stem . '-carousel.jpg';
 
-    if (file_exists($src_webp)) @copy($src_webp, $dst_webp);
-    if (file_exists($src_jpg))  @copy($src_jpg,  $dst_jpg);
-  }
+  //   if (file_exists($src_webp)) @copy($src_webp, $dst_webp);
+  //   if (file_exists($src_jpg))  @copy($src_jpg,  $dst_jpg);
+  // }
+  //===============
 
   // Bulk UI: clear "current file" display once this attachment finishes
   $job = alexk_bulk_job_get();
@@ -571,9 +574,35 @@ add_shortcode('alexk_carousel', function($atts = []) {
 
     if (empty($webp_srcset) && empty($jpg_srcset)) continue;
 
-    $fallback = !empty($jpg_srcset)
-      ? alexk_path_to_upload_url($out_dir . '/' . $stem . '-carousel.jpg')
-      : alexk_path_to_upload_url($out_dir . '/' . $stem . '-carousel.webp');
+    // References .carousel images which have been removed for performance
+    // $fallback = !empty($jpg_srcset)
+    //   ? alexk_path_to_upload_url($out_dir . '/' . $stem . '-carousel.jpg')
+    //   : alexk_path_to_upload_url($out_dir . '/' . $stem . '-carousel.webp');
+
+    // Fallback = largest generated JPG (no duplicate carousel files)
+    $widths = alexk_carousel_widths();
+    rsort($widths); // largest → smallest
+
+    $fallback = '';
+    foreach ($widths as $w) {
+      $p_jpg = $out_dir . '/' . $stem . '-w' . $w . '.jpg';
+      if (file_exists($p_jpg)) {
+        $fallback = alexk_path_to_upload_url($p_jpg);
+        break;
+      }
+    }
+
+    // Last-resort fallback to WebP if no JPG exists
+    if ($fallback === '') {
+      foreach ($widths as $w) {
+        $p_webp = $out_dir . '/' . $stem . '-w' . $w . '.webp';
+        if (file_exists($p_webp)) {
+          $fallback = alexk_path_to_upload_url($p_webp);
+          break;
+        }
+      }
+    }
+    //===== end of .carousel replacement solution.
 
     $items[] = [
       'webp_srcset' => implode(', ', $webp_srcset),
@@ -688,20 +717,36 @@ add_action('alexk_do_generate_derivatives', function ($attachment_id) {
   $attachment_id = (int)$attachment_id;
   if (!$attachment_id) return;
 
-  alexk_generate_carousel_derivatives_for_attachment($attachment_id);
+  // Prevent overlapping cron workers (very important for stability)
+  $lock_key = 'alexk_carousel_cron_lock';
+  if (get_transient($lock_key)) return;
+  set_transient($lock_key, 1, 60); // 60s safety window
 
-  $job = alexk_bulk_job_get();
-  if (!empty($job['pending'])) {
-    $job['done'] = (int)($job['done'] ?? 0) + 1;
-
-    if ((int)$job['done'] >= (int)$job['pending']) {
-      alexk_bulk_job_clear();
-      return;
-    }
-
-    alexk_bulk_job_set($job);
+  try {
+    alexk_generate_carousel_derivatives_for_attachment($attachment_id);
+  } finally {
+    delete_transient($lock_key);
   }
+
+  // Progress bookkeeping (one attachment finished)
+  $job = alexk_bulk_job_get();
+  if (!is_array($job)) return;
+
+  $pending = (int)($job['pending'] ?? 0);
+  if ($pending <= 0) return;
+
+  $job['done'] = (int)($job['done'] ?? 0) + 1;
+  $job['pending'] = max(0, $pending - 1);
+  $job['current_filename'] = basename(get_attached_file($attachment_id) ?: '');
+
+  if ($job['pending'] <= 0) {
+    alexk_bulk_job_clear();
+    return;
+  }
+
+  alexk_bulk_job_set($job);
 }, 10, 1);
+
 
 add_action('alexk_generate_derivatives_cron', function (int $attachment_id): void {
   $attachment_id = (int) $attachment_id;
@@ -772,11 +817,11 @@ add_action('wp_ajax_alexk_bulk_add_to_carousel', function () {
       if ($cancel_path && file_exists($cancel_path)) @unlink($cancel_path);
     }
 
-    $when = time() + 1;
-    // OLD CRON
-    // $scheduled = wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
-    // if ($scheduled) $queued++;
-    wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
+    // $when = time() + 1;
+    // // OLD CRON
+    // // $scheduled = wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
+    // // if ($scheduled) $queued++;
+    // wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
 
   }
   // OLD CRON
@@ -837,11 +882,11 @@ add_action('wp_ajax_alexk_bulk_remove_from_carousel', function () {
       if ($cancel_path) @file_put_contents($cancel_path, (string) time());
     }
 
-    $when = time() + 1;
+    // $when = time() + 1;
     // ✅ correct hook for delete OLD CRON
     // $scheduled = wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
     // if ($scheduled) $queued++;
-    wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
+    // wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
 
   }
   // OLD CRON
@@ -900,13 +945,46 @@ add_action('wp_ajax_alexk_bulk_job_status', function () {
 
   $job = alexk_bulk_job_get();
 
-  // Elementor-safe worker: advance 1 item per status poll
+  // Elementor-safe worker: advance 4 item per status poll
   $mode  = (string)($job['mode'] ?? '');
   $queue = $job['queue'] ?? [];
   $total = (int)($job['total'] ?? ($job['pending'] ?? 0));
+  $batch = 2; // increase to 8 later if server can handle it
 
 
+  // Slow, single file process version.
+  // if (!empty($job['started']) && is_array($queue) && !empty($queue) && ($mode === 'add' || $mode === 'remove')) {
+  //   $attachment_id = (int)array_shift($queue);
+
+  //   if ($attachment_id > 0 && get_post_type($attachment_id) === 'attachment') {
+  //     if ($mode === 'add') {
+  //       alexk_generate_carousel_derivatives_for_attachment($attachment_id);
+  //     } else {
+  //       alexk_delete_carousel_derivatives_for_attachment($attachment_id);
+  //     }
+  //   }
+
+  //   // update job
+  //   $job['queue'] = array_values($queue);
+  //   $job['done']  = (int)($job['done'] ?? 0) + 1;
+  //   $job['pending'] = max(0, (int)($job['pending'] ?? 0) - 1);
+
+
+  //   // finish?
+  //   if ($total > 0 && (int)$job['done'] >= $total) {
+  //     alexk_bulk_job_clear();
+  //     $job = alexk_bulk_job_get(); // now cleared
+  //   } else {
+  //     alexk_bulk_job_set($job);
+  //   }
+  // }
+
+  // Fast, 5 - 8 file version
   if (!empty($job['started']) && is_array($queue) && !empty($queue) && ($mode === 'add' || $mode === 'remove')) {
+
+  for ($i = 0; $i < $batch; $i++) {
+    if (empty($queue)) break;
+
     $attachment_id = (int)array_shift($queue);
 
     if ($attachment_id > 0 && get_post_type($attachment_id) === 'attachment') {
@@ -917,22 +995,49 @@ add_action('wp_ajax_alexk_bulk_job_status', function () {
       }
     }
 
-    // update job
-    $job['queue'] = array_values($queue);
-    $job['done']  = (int)($job['done'] ?? 0) + 1;
+    $job['done']    = (int)($job['done'] ?? 0) + 1;
     $job['pending'] = max(0, (int)($job['pending'] ?? 0) - 1);
-
+    $job['queue'] = array_values($queue);
+    alexk_bulk_job_set($job);
 
     // finish?
     if ($total > 0 && (int)$job['done'] >= $total) {
       alexk_bulk_job_clear();
       $job = alexk_bulk_job_get(); // now cleared
+      $queue = [];
+      break;
+    }
+  }
+
+  // Persist remaining queue if job still active
+  if (!empty($job['started'])) {
+    $job['queue'] = array_values($queue);
+    alexk_bulk_job_set($job);
+  }
+}
+
+
+  $job = alexk_bulk_job_get();
+  // Normalize counters from queue (prevents drift / "stuck 2 short")
+if (!empty($job['started'])) {
+  $queue = $job['queue'] ?? [];
+  $queueCount = is_array($queue) ? count($queue) : 0;
+
+  $total = (int)($job['total'] ?? 0);
+  if ($total > 0) {
+    $job['pending'] = $queueCount;
+    $job['done']    = max(0, $total - $queueCount);
+
+    // If queue is empty, job is done.
+    if ($queueCount === 0) {
+      alexk_bulk_job_clear();
+      $job = alexk_bulk_job_get();
     } else {
       alexk_bulk_job_set($job);
     }
   }
+}
 
-  $job = alexk_bulk_job_get();
 
   wp_send_json_success([
     'pending'               => (int)($job['pending'] ?? 0),
