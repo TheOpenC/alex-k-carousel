@@ -61,7 +61,6 @@
   }
     
   
-
   // ---------------------------
   // Persist notice across reload (sessionStorage)
   // ---------------------------
@@ -88,39 +87,43 @@
     // ---------------------------
   // WP-style admin notice banner (like list view)
   // ---------------------------
-  function showWpNotice(message, type = "success") {
-    // type: "success" | "error" | "warning" | "info"
-    const wrap = document.querySelector(".wrap");
-    if (!wrap) return;
+ function showWpNotice(message, type = "success", ttlMs = 0) {
+  // type: "success" | "error" | "warning" | "info"
+  const wrap = document.querySelector(".wrap");
+  if (!wrap) return;
 
-  
-    // Remove existing AlexK notice if present
-    const existing = wrap.querySelector(".notice.alexk-carousel-notice");
-    if (existing) existing.remove();
+  // Remove existing AlexK notice if present
+  const existing = wrap.querySelector(".notice.alexk-carousel-notice");
+  if (existing) existing.remove();
 
-    const notice = document.createElement("div");
-    notice.className = `notice notice-${type} is-dismissible alexk-carousel-notice`;
-    notice.innerHTML = `<p>${message}</p>`;
+  const notice = document.createElement("div");
+  notice.className = `notice notice-${type} is-dismissible alexk-carousel-notice`;
+  notice.innerHTML = `<p>${message}</p>`;
 
-    // Insert right under the H1 / header area
-    const h1 = wrap.querySelector("h1");
-    if (h1 && h1.parentNode) {
-      h1.parentNode.insertBefore(notice, h1.nextSibling);
-    } else {
-      wrap.insertBefore(notice, wrap.firstChild);
-    }
-
-    // Make the X button work (WP normally wires this, but we can do it ourselves)
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "notice-dismiss";
-    btn.innerHTML = `<span class="screen-reader-text">Dismiss this notice.</span>`;
-    btn.addEventListener("click", () => notice.remove());
-    notice.appendChild(btn);
-
-    // Scroll into view so user sees it
-    // notice.scrollIntoView({ behavior: "smooth", block: "start" });
+  // Insert right under the H1 / header area
+  const h1 = wrap.querySelector("h1");
+  if (h1 && h1.parentNode) {
+    h1.parentNode.insertBefore(notice, h1.nextSibling);
+  } else {
+    wrap.insertBefore(notice, wrap.firstChild);
   }
+
+  // Dismiss button
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "notice-dismiss";
+  btn.innerHTML = `<span class="screen-reader-text">Dismiss this notice.</span>`;
+  btn.addEventListener("click", () => notice.remove());
+  notice.appendChild(btn);
+
+  // Optional auto-dismiss (used for “Queued…”)
+  if (Number.isFinite(ttlMs) && ttlMs > 0) {
+    window.setTimeout(() => {
+      if (notice && notice.isConnected) notice.remove();
+    }, ttlMs);
+  }
+}
+
 
   // UI progress element
   function ensureProgressNoticeEl() {
@@ -141,18 +144,61 @@
   return el;
 }
 
-function renderBulkProgress(data) {
-  const el = ensureProgressNoticeEl();
-  if (!el) return;
+function ensureCornerHudEl() {
+  let el = document.querySelector("#alexk-corner-hud");
+  if (el) return el;
 
+  el = document.createElement("div");
+  el.id = "alexk-corner-hud";
+  el.style.position = "fixed";
+  el.style.right = "16px";
+  el.style.bottom = "16px";
+  el.style.zIndex = "999999";
+  el.style.background = "#fff";
+  el.style.border = "1px solid rgba(0,0,0,0.15)";
+  el.style.borderRadius = "8px";
+  el.style.boxShadow = "0 8px 24px rgba(0,0,0,0.12)";
+  el.style.padding = "10px 12px";
+  el.style.fontSize = "13px";
+  el.style.lineHeight = "1.3";
+  el.style.maxWidth = "360px";
+  el.style.display = "none";
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:10px;">
+      <div style="flex:1;">
+        <div style="font-weight:600;margin-bottom:2px;">Carousel job</div>
+        <div class="alexk-corner-hud-text">Starting…</div>
+      </div>
+      <button type="button" class="alexk-corner-hud-x" aria-label="Dismiss" style="border:0;background:transparent;cursor:pointer;font-size:16px;line-height:1;">×</button>
+    </div>
+  `;
+
+  el.querySelector(".alexk-corner-hud-x")?.addEventListener("click", () => {
+    el.style.display = "none";
+  });
+
+  document.body.appendChild(el);
+  return el;
+}
+
+function renderBulkProgress(data) {
+  // ✅ Corner HUD ONLY (no top bar progress)
   const mode = (data?.mode || "").toString();
   const done = Number(data?.done ?? 0);
   const total = Number(data?.total ?? 0);
   const pending = Number(data?.pending ?? 0);
 
+  // If a prior top progress notice exists from older code, remove it once.
+  const oldTop = document.querySelector(".notice.alexk-carousel-progress");
+  if (oldTop) oldTop.remove();
+
+  const hud = ensureCornerHudEl();
+
   // Hide when no active job
-  if (!Number.isFinite(total) || total <= 0 || (!pending && !done)) {
-    el.remove();
+  const noJob = (!Number.isFinite(total) || total <= 0 || (!pending && !done));
+  if (noJob) {
+    if (hud) hud.style.display = "none";
     return;
   }
 
@@ -171,26 +217,38 @@ function renderBulkProgress(data) {
 
   const text = `${modeLabel}: ${done}/${total} done (${pending} left)${filePart}`;
 
-  const span = el.querySelector(".alexk-progress-text");
-  if (span) span.textContent = text;
+  const hudText = hud.querySelector(".alexk-corner-hud-text");
+  if (hudText) hudText.textContent = text;
+  hud.style.display = "";
 }
 
 
   // ---------------------------
   // Bulk mode detection (your WP 6.9 toolbar)
   // ---------------------------
-  function isBulkModeActive() {
+    function isBulkModeActive() {
     const toggle = $("button.select-mode-toggle-button");
     if (!toggle) return false;
-    return (toggle.textContent || "").trim().toLowerCase() === "cancel";
+
+    const txt = ((toggle.textContent || "") + "").trim().toLowerCase();
+
+    // WP changes this label across versions ("Cancel", "Cancel selection", etc.)
+    // Also: selecting mode usually sets aria-pressed="true" or body.selecting.
+    const ariaPressed = (toggle.getAttribute("aria-pressed") || "").toLowerCase();
+    const bodySelecting = document.body && document.body.classList.contains("selecting");
+
+    return bodySelecting || ariaPressed === "true" || txt.includes("cancel");
   }
 
   function exitBulkSelectMode() {
     const toggle = $("button.select-mode-toggle-button");
     if (!toggle) return;
-    if ((toggle.textContent || "").trim().toLowerCase() === "cancel") toggle.click();
+
+    // Only click if we are in bulk/selecting mode
+    if (isBulkModeActive()) toggle.click();
   }
 
+  
   // ---------------------------
   // Green dot indicator
   // ---------------------------
@@ -217,6 +275,49 @@ function renderBulkProgress(data) {
     }
   }
 
+  // ---------------------------
+// Hover metadata (Grid View): show file details on hover
+// ---------------------------
+function buildHoverTextFromModel(model) {
+  try {
+    const get = (k) => (model && typeof model.get === "function" ? model.get(k) : undefined);
+
+    const id = get("id");
+    const filename = get("filename") || get("name") || get("title") || "";
+    const subtype = get("subtype") || get("type") || "";
+    const mime = get("mime") || get("mime_type") || "";
+    const size = get("filesizeHumanReadable") || get("filesize") || "";
+    const width = get("width");
+    const height = get("height");
+    const dims = (Number(width) > 0 && Number(height) > 0) ? `${width}×${height}` : "";
+
+    const inCarousel = !!get("alexk_in_carousel");
+    const carouselText = inCarousel ? "In carousel: Yes" : "In carousel: No";
+
+    // Keep this short and readable in native tooltip
+    const parts = [
+      filename ? `File: ${filename}` : "",
+      dims ? `Size: ${dims}` : "",
+      size ? `Filesize: ${size}` : "",
+      subtype ? `Type: ${subtype}` : (mime ? `Type: ${mime}` : ""),
+      (Number(id) > 0) ? `ID: ${id}` : "",
+      carouselText,
+    ].filter(Boolean);
+
+    return parts.join("\n");
+  } catch {
+    return "";
+  }
+}
+
+function applyHoverMetaToTile(tile, model) {
+  if (!tile) return;
+  const text = buildHoverTextFromModel(model);
+  if (!text) return;
+  // Native browser tooltip on hover
+  tile.setAttribute("title", text);
+}
+
   function patchWpMediaAttachmentRender() {
     const Attachment = window.wp?.media?.view?.Attachment;
     if (!Attachment) return false;
@@ -231,6 +332,8 @@ function renderBulkProgress(data) {
       try {
         const included = !!this.model?.get?.("alexk_in_carousel");
         applyIncludedStateToTile(this.el, included);
+        applyHoverMetaToTile(this.el, this.model);
+
       } catch {}
       return out;
     };
@@ -288,11 +391,94 @@ function renderBulkProgress(data) {
   // If PHP advances one item per "status" call, we must poll status to keep work moving.
   // ---------------------------
 
-  // NEW
   function startBulkProgressPump() {
   // Don't start twice
   if (document.__alexkProgressPump) return;
   document.__alexkProgressPump = true;
+
+   const LAST_DONE_KEY = "alexk_last_completed";
+
+  function modeLabel(mode) {
+  const m = (mode || "").toString().toLowerCase();
+
+  // Robust: supports "remove", "remove_from_carousel", "removing", etc.
+  const isRemove = m.includes("remove") || m.includes("delete");
+
+  return isRemove ? "Last removed:" : "Last added:";
+}
+
+
+
+  function ensureLastDoneNoticeEl() {
+    const wrap = document.querySelector(".wrap");
+    if (!wrap) return null;
+
+    let el = wrap.querySelector(".notice.alexk-carousel-lastdone");
+    if (el) return el;
+
+    el = document.createElement("div");
+    el.className = "notice notice-info is-dismissible alexk-carousel-lastdone";
+    el.innerHTML = `<p><strong class="alexk-lastdone-label">Last completed:</strong> <span class="alexk-lastdone-text"></span></p>`;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "notice-dismiss";
+    btn.innerHTML = `<span class="screen-reader-text">Dismiss this notice.</span>`;
+    btn.addEventListener("click", () => {
+      try { localStorage.removeItem(LAST_DONE_KEY); } catch {}
+      el.remove();
+    });
+    el.appendChild(btn);
+
+    // Insert above progress notice (if present), otherwise under H1.
+    const progress = wrap.querySelector(".notice.alexk-carousel-progress");
+    if (progress && progress.parentNode) {
+      progress.parentNode.insertBefore(el, progress);
+    } else {
+      const h1 = wrap.querySelector("h1");
+      if (h1 && h1.parentNode) h1.parentNode.insertBefore(el, h1.nextSibling);
+      else wrap.insertBefore(el, wrap.firstChild);
+    }
+
+    return el;
+  }
+
+  function setLastDoneText(filename, mode) {
+  if (!filename) return;
+
+  // Persist for refresh + stability
+  try {
+    localStorage.setItem(
+      LAST_DONE_KEY,
+      JSON.stringify({ filename, mode: (mode || "").toString(), ts: Date.now() })
+    );
+  } catch {}
+
+  const el = ensureLastDoneNoticeEl();
+  if (!el) return;
+
+  const labelEl = el.querySelector(".alexk-lastdone-label");
+  if (labelEl) labelEl.textContent = modeLabel(mode);
+
+  const span = el.querySelector(".alexk-lastdone-text");
+  if (span) span.textContent = filename;
+}
+
+
+  // Show whatever we last knew immediately (survives refresh)
+  try {
+    const stored = localStorage.getItem(LAST_DONE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed?.filename) setLastDoneText(parsed.filename, parsed.mode || "");
+      } catch {
+        // Back-compat: if something old is stored as a string
+        setLastDoneText(stored, "");
+      }
+    }
+  } catch {}
+
 
   let inFlight = false;
 
@@ -302,25 +488,59 @@ function renderBulkProgress(data) {
 
     try {
       const json = await postAjax("alexk_bulk_job_status");
-      const total = Number(json?.data?.total ?? 0);
-      if (!Number.isFinite(total) || total <= 0) return; // no active job, do nothing
+      const data = json?.data || {};
 
-      if (json?.data) renderBulkProgress(json.data);
+      // ✅ Update “Last completed” from server truth whenever it changes.
+      const lastDone = (data?.last_completed_filename || "").toString().trim();
+      const modeRaw = ((data?.mode || "") + "").toLowerCase().trim();
+      // If server doesn't provide a mode (common when job ends / no active job),
+      // do NOT overwrite the previously stored mode.
+      let safeMode = "";
+      if (modeRaw) {
+        safeMode = (modeRaw.includes("remove") || modeRaw.includes("delete")) ? "remove" : "add";
+      } else {
+        // Fall back to whatever we last persisted
+        try {
+          const stored = localStorage.getItem(LAST_DONE_KEY);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed?.mode) safeMode = (parsed.mode + "").toLowerCase();
+          }
+        } catch {}
+      }
 
-      // If the job is finished, stop polling to reduce load
-      const pending = Number(json?.data?.pending ?? 0);
+      // Only update if we actually have a filename
+      if (lastDone) setLastDoneText(lastDone, safeMode);
+
+
+
+
+      const total = Number(data?.total ?? 0);
+
+      // No active job → hide progress UI, but keep “Last completed” visible.
+      if (!Number.isFinite(total) || total <= 0) {
+        renderBulkProgress({ total: 0, pending: 0, done: 0 });
+        return;
+      }
+
+      renderBulkProgress(data);
+
+      // If finished, stop polling and remove progress notice (keep last-done notice)
+      const pending = Number(data?.pending ?? 0);
       if (Number.isFinite(pending) && pending <= 0) {
         clearInterval(pumpId);
         document.__alexkProgressPump = false;
+        renderBulkProgress({ total: 0, pending: 0, done: 0 });
         return;
       }
     } catch {
-      // swallow errors (keeps behavior same as before)
+      // swallow errors
     } finally {
       inFlight = false;
     }
-  }, 1000);
-}  
+  }, 800);
+}
+
 
 
   function setWpMediaModelFlag(id, included) {
@@ -342,7 +562,15 @@ function renderBulkProgress(data) {
   function updateUiForIds(ids, included) {
     for (const id of ids) {
       const tile = document.querySelector(`.attachments .attachment[data-id="${id}"]`);
-      if (tile) applyIncludedStateToTile(tile, included);
+      if (tile) {
+        applyIncludedStateToTile(tile, included);
+        // Keep hover tooltip in sync immediately after bulk actions
+      try {
+        const att = window.wp?.media?.attachment?.(id);
+        if (att) applyHoverMetaToTile(tile, att);
+      } catch {}
+      }
+
       setWpMediaModelFlag(id, included);
      
 
@@ -405,7 +633,8 @@ function renderBulkProgress(data) {
   // ---------------------------
   // Click handlers
   // ---------------------------
-  async function onAdd() {
+
+    async function onAdd() {
     const { inCarousel, notInCarousel } = partitionSelection();
     const toAdd = notInCarousel;
     const skipped = inCarousel;
@@ -421,18 +650,32 @@ function renderBulkProgress(data) {
 
     if (!confirm(msg)) return;
 
-    const json = await postAjax("alexk_bulk_add_to_carousel", toAdd);
+    let json;
+    try {
+      json = await postAjax("alexk_bulk_add_to_carousel", toAdd);
+    } catch {
+      showWpNotice("Bulk add failed (network).", "error");
+      return;
+    }
+
     if (!json?.success) {
       showWpNotice(json?.data?.message || "Bulk add failed.", "error");
       return;
     }
 
-    // reload and exit bulk selection mode resets the state. Reload refreshes the checkbox. Both are essential.
+    // Update UI immediately (don’t wait for generation)
     updateUiForIds(toAdd, true);
-    queueNoticeForAfterReload(`Added ${json.data.updated} item(s) to the carousel.`, "success");
+
+    // Exit bulk select immediately so checkmarks clear and UI is responsive
     exitBulkSelectMode();
     updateButtonsVisibility();
-    window.location.reload();
+
+    // Start polling so the queued job actually advances + progress notice updates
+    startBulkProgressPump();
+
+    // Visible feedback without reload
+    showWpNotice(`Queued ${json?.data?.updated ?? toAdd.length} item(s) to add to the carousel.`, "success", 12000);
+
   }
 
   async function onRemove() {
@@ -451,19 +694,51 @@ function renderBulkProgress(data) {
 
     if (!confirm(msg)) return;
 
-    const json = await postAjax("alexk_bulk_remove_from_carousel", toRemove);
+    let json;
+    try {
+      json = await postAjax("alexk_bulk_remove_from_carousel", toRemove);
+    } catch {
+      showWpNotice("Bulk remove failed (network).", "error");
+      return;
+    }
+
     if (!json?.success) {
       showWpNotice(json?.data?.message || "Bulk remove failed.", "error");
       return;
     }
 
-     // reload and exit bulk selection mode resets the state. Reload refreshes the checkbox. Both are essential.
+    // Update UI immediately (don’t wait for deletion)
     updateUiForIds(toRemove, false);
-    queueNoticeForAfterReload(`Removed ${json.data.updated} item(s) to the carousel.`, "success");
+
+    // Exit bulk select immediately so checkmarks clear and UI is responsive
     exitBulkSelectMode();
     updateButtonsVisibility();
-    window.location.reload();
+
+    // Start polling so the queued job actually advances + progress notice updates
+    startBulkProgressPump();
+
+    // Visible feedback without reload
+    showWpNotice(`Queued ${json?.data?.updated ?? toRemove.length} item(s) to add to the carousel.`, "success", 12000);
+
   }
+
+
+  // NEw Progress UI 
+  async function startHudJob(mode, attachmentIds) {
+  const form = new FormData();
+  form.append("action", "alexk_job_start");
+  form.append("mode", mode);
+  attachmentIds.forEach((id) => form.append("attachment_ids[]", String(id)));
+
+  const res = await fetch(window.ajaxurl, {
+    method: "POST",
+    body: form,
+    credentials: "same-origin",
+  });
+
+  return res.json();
+}
+
 
   // ---------------------------
   // Observers (small)
@@ -498,26 +773,32 @@ function renderBulkProgress(data) {
     domMo.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  function boot() {
-    // show notices 
-    showQueuedNoticeIfAny();
-    // NEW CODE
-    startBulkProgressPump();
+ function boot() {
+  // Notices (if you ever re-enable "after reload" messaging)
+  showQueuedNoticeIfAny();
 
-    // Patch tile rendering for dot
-    if (!patchWpMediaAttachmentRender()) {
-      const mo = new MutationObserver(() => {
-        if (patchWpMediaAttachmentRender()) mo.disconnect();
-      });
-      mo.observe(document.documentElement, { childList: true, subtree: true });
-    }
-
-    bindReloadOnExitSingleViewOnce();
-
-    ensureButtons();
-    updateButtonsVisibility();
-    bindObservers();
+  // Patch tile rendering so dots + alexk-in-carousel class reflect REAL model state.
+  // Without this, tiles can say "not in carousel" while folders exist (and vice versa).
+  if (!patchWpMediaAttachmentRender()) {
+    const mo = new MutationObserver(() => {
+      if (patchWpMediaAttachmentRender()) mo.disconnect();
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
   }
+
+  // Keep dot state consistent when closing single attachment view
+  bindReloadOnExitSingleViewOnce();
+
+  // Buttons + observers
+  ensureButtons();
+  updateButtonsVisibility();
+  bindObservers();
+
+  // Always start the pump on page load so refresh does NOT "clear" progress.
+  // If there is no active job, renderBulkProgress() will hide UI.
+  startBulkProgressPump();
+}
+
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();

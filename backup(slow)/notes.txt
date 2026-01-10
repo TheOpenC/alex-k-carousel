@@ -1,1 +1,0 @@
-This version processes a single request at a time. Very, very slow.

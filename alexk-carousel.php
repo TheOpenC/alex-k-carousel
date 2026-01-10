@@ -2,10 +2,24 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel
  * Description: Image Carousel for displaying documentation. 5 - 8 file Process bulk carousel jobs via admin AJAX ticks instead of WP-Cron. Fast version
- * Version: 0.3.3
+ * Version: 0.3.4
  */
 
 if (!defined('ABSPATH')) exit;
+
+/**
+ * ------------------------------------------------------------
+ * Progress HUD system (truth store + runner + ajax endpoints)
+ * ------------------------------------------------------------
+ */
+// Progress HUD system
+require_once __DIR__ . '/includes/hud-helpers.php';
+require_once __DIR__ . '/includes/hud-store.php';
+require_once __DIR__ . '/includes/hud-runner.php';
+require_once __DIR__ . '/includes/hud-ajax.php';
+
+
+
 
 /* =========================================================
  * CONFIG
@@ -95,7 +109,7 @@ function alexk_schedule_generate_derivatives(int $attachment_id): void {
 
 
 /* =========================================================
- * ADMIN UI: Attachment checkbox + Media grid indicator
+ * ADMIN UI: Attachment checkbox + Media grid indicator + HUD
  * ======================================================= */
 
 /**
@@ -182,31 +196,68 @@ add_filter('handle_bulk_actions-upload', function (string $redirect_url, string 
   }
 
   $key = alexk_carousel_meta_key();
-  $updated = 0;
+$updated = 0;
+$queue = [];
 
-  foreach ($post_ids as $id) {
-    $id = (int) $id;
-    if ($id <= 0) continue;
+// Mirror Grid View behavior: update meta fast, then queue work for the polling worker.
+foreach ($post_ids as $id) {
+  $id = (int) $id;
+  if ($id <= 0) continue;
+  if (get_post_type($id) !== 'attachment') continue;
 
-    if ($action === 'alexk_add_to_carousel') {
-      update_post_meta($id, $key, '1');
-      alexk_schedule_generate_derivatives($id); // <- returns immediately
+  if ($action === 'alexk_add_to_carousel') {
+    update_post_meta($id, $key, '1');
 
-      $updated++;
-    } else {
-      update_post_meta($id, $key, '0');
-      alexk_delete_carousel_derivatives_for_attachment($id);
-      $updated++;
+    // Clear any prior cancel marker BEFORE generating.
+    $file = get_attached_file($id);
+    if ($file) {
+      $cancel = alexk_carousel_cancel_marker_path($id, $file);
+      if ($cancel && file_exists($cancel)) @unlink($cancel);
     }
+
+    $queue[] = $id;
+    $updated++;
+  } else {
+    update_post_meta($id, $key, '0');
+
+    // Create cancel marker so any in-flight generator stops ASAP.
+    $file = get_attached_file($id);
+    if ($file) {
+      $cancel_path = alexk_carousel_cancel_marker_path($id, $file);
+      if ($cancel_path) @file_put_contents($cancel_path, (string) time());
+    }
+
+    $queue[] = $id;
+    $updated++;
   }
+}
 
-  // Add a query arg so we can show an admin notice on redirect.
-  $redirect_url = add_query_arg([
-    'alexk_list_bulk' => $action,
-    'alexk_updated'   => $updated,
-  ], $redirect_url);
+// Start queue job processed by alexk_bulk_job_status polling (Elementor-safe)
+alexk_bulk_job_clear();
+alexk_bulk_job_set([
+  'pending'  => count($queue),
+  'done'     => 0,
+  'total'    => count($queue),
+  'queue'    => array_values($queue),
+  'started'  => time(),
+  'mode'     => ($action === 'alexk_remove_from_carousel') ? 'remove' : 'add',
 
-  return $redirect_url;
+  'current_attachment_id' => 0,
+  'current_filename'      => '',
+  'file_pending'          => 0,
+  'file_done'             => 0,
+]);
+
+
+$redirect_url = add_query_arg([
+  'alexk_list_bulk'     => $action,
+  'alexk_updated'       => $updated,
+  'alexk_last_filename' => $last_filename,
+  'alexk_last_mode'     => ($action === 'alexk_remove_from_carousel') ? 'remove' : 'add',
+], $redirect_url);
+
+return $redirect_url;
+
 }, 10, 3);
 
 // Admin notice after redirect.
@@ -218,6 +269,19 @@ add_action('admin_notices', function () {
 
   $action  = sanitize_text_field((string) $_GET['alexk_list_bulk']);
   $updated = (int) $_GET['alexk_updated'];
+  // Persist List View result into the same key the JS banner uses (so it updates without any polling).
+$lastFn  = isset($_GET['alexk_last_filename']) ? sanitize_text_field((string) $_GET['alexk_last_filename']) : '';
+$lastMode = isset($_GET['alexk_last_mode']) ? sanitize_text_field((string) $_GET['alexk_last_mode']) : '';
+
+if ($lastFn) {
+  $payload = wp_json_encode([
+    'filename' => $lastFn,
+    'mode'     => $lastMode,
+    'ts'       => time(),
+  ]);
+  echo '<script>(function(){try{localStorage.setItem("alexk_last_completed", ' . $payload . ');}catch(e){}})();</script>';
+}
+
 
   if ($action === 'alexk_add_to_carousel') {
     echo '<div class="notice notice-success is-dismissible"><p>';
@@ -261,8 +325,16 @@ add_action('manage_media_custom_column', function (string $column_name, int $pos
   }
 }, 10, 2);
 
+// HUD ENQUEUE
+add_action('admin_enqueue_scripts', function () {
+  $rel = 'js/hud.js';
+  $abs = plugin_dir_path(__FILE__) . $rel;
+  $url = plugins_url($rel, __FILE__);
 
+  if (!file_exists($abs)) return;
 
+  wp_enqueue_script('alexk-hud', $url, [], filemtime($abs), true);
+});
 
 
 /**
@@ -373,23 +445,6 @@ function alexk_generate_carousel_derivatives_for_attachment(int $attachment_id):
     }
   }
 
-  //===============
-  // .carousel duplicates of source images. eliminated for performance
-  // Convenience siblings inside the folder (for a stable "fallback" filename)
-  // if ($largest_generated > 0) {
-  //   if (file_exists($cancel_path)) return;
-  //   if (!is_dir($out_dir)) return;
-
-  //   $src_webp = $out_dir . '/' . $stem . '-w' . $largest_generated . '.webp';
-  //   $src_jpg  = $out_dir . '/' . $stem . '-w' . $largest_generated . '.jpg';
-
-  //   $dst_webp = $out_dir . '/' . $stem . '-carousel.webp';
-  //   $dst_jpg  = $out_dir . '/' . $stem . '-carousel.jpg';
-
-  //   if (file_exists($src_webp)) @copy($src_webp, $dst_webp);
-  //   if (file_exists($src_jpg))  @copy($src_jpg,  $dst_jpg);
-  // }
-  //===============
 
   // Bulk UI: clear "current file" display once this attachment finishes
   $job = alexk_bulk_job_get();
@@ -536,6 +591,7 @@ add_action('wp_enqueue_scripts', function () {
   }
 });
 
+
 add_shortcode('alexk_carousel', function($atts = []) {
   $q = new WP_Query([
     'post_type'      => 'attachment',
@@ -573,11 +629,6 @@ add_shortcode('alexk_carousel', function($atts = []) {
     }
 
     if (empty($webp_srcset) && empty($jpg_srcset)) continue;
-
-    // References .carousel images which have been removed for performance
-    // $fallback = !empty($jpg_srcset)
-    //   ? alexk_path_to_upload_url($out_dir . '/' . $stem . '-carousel.jpg')
-    //   : alexk_path_to_upload_url($out_dir . '/' . $stem . '-carousel.webp');
 
     // Fallback = largest generated JPG (no duplicate carousel files)
     $widths = alexk_carousel_widths();
@@ -681,19 +732,7 @@ function alexk_bulk_job_patch(array $patch): void {
   if (!is_array($job)) $job = [];
   alexk_bulk_job_set(array_merge($job, $patch));
 }
-// Old version (cron)
-// function alexk_bulk_job_clear(): void {
-//   alexk_bulk_job_set([
-//     'pending'               => 0,
-//     'done'                  => 0,
-//     'started'               => 0,
-//     'mode'                  => '',
-//     'current_attachment_id' => 0,
-//     'current_filename'      => '',
-//     'file_pending'          => 0,
-//     'file_done'             => 0,
-//   ]);
-// }
+
 
 function alexk_bulk_job_clear(): void {
   alexk_bulk_job_set([
@@ -786,8 +825,7 @@ add_action('alexk_do_delete_derivatives', function ($attachment_id) {
 /* =========================================================
  * BULK AJAX: add/remove + job status
  * ======================================================= */
-
-add_action('wp_ajax_alexk_bulk_add_to_carousel', function () {
+  add_action('wp_ajax_alexk_bulk_add_to_carousel', function () {
   if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'alexk_bulk_add_to_carousel')) {
     wp_send_json_error(['message' => 'Invalid nonce'], 403);
   }
@@ -799,59 +837,124 @@ add_action('wp_ajax_alexk_bulk_add_to_carousel', function () {
   }
 
   $ids = array_filter(array_map('intval', explode(',', (string) $_POST['ids'])));
-  // $queued = 0; OLD CRON
-  $queued = count($ids);
+  $queue = [];
+  $updated = 0;
 
-
-
+  // 1) Update meta immediately + clear cancel markers (FAST)
   foreach ($ids as $attachment_id) {
-    if (!$attachment_id) continue;
+    $attachment_id = (int)$attachment_id;
+    if ($attachment_id <= 0) continue;
     if (get_post_type($attachment_id) !== 'attachment') continue;
 
     update_post_meta($attachment_id, alexk_carousel_meta_key(), '1');
 
-    // Clear cancel marker BEFORE background generation
     $file = get_attached_file($attachment_id);
     if ($file) {
-      $cancel_path = alexk_carousel_cancel_marker_path($attachment_id, $file);
-      if ($cancel_path && file_exists($cancel_path)) @unlink($cancel_path);
+      $cancel = alexk_carousel_cancel_marker_path($attachment_id, $file);
+      if ($cancel && file_exists($cancel)) @unlink($cancel);
     }
 
-    // $when = time() + 1;
-    // // OLD CRON
-    // // $scheduled = wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
-    // // if ($scheduled) $queued++;
-    // wp_schedule_single_event($when, 'alexk_do_generate_derivatives', [$attachment_id]);
-
+    $queue[] = $attachment_id;
+    $updated++;
   }
-  // OLD CRON
-  // alexk_bulk_job_set([
-  //   'pending' => $queued,
-  //   'done'    => 0,
-  //   'started' => time(),
-  //   'mode'    => 'add',
-  //   'current_attachment_id' => 0,
-  //   'current_filename'      => '',
-  //   'file_pending'          => 0,
-  //   'file_done'             => 0,
-  // ]);
 
+  // 2) Start an async-ish job that advances via alexk_bulk_job_status polling (NO freeze)
+  alexk_bulk_job_clear();
   alexk_bulk_job_set([
-  'pending' => $queued,
-  'done'    => 0,
-  'total'   => $queued,
-  'queue'   => array_values($ids),
-  'started' => time(),
-  'mode'    => 'add',
-  'current_attachment_id' => 0,
-  'current_filename'      => '',
-  'file_pending'          => 0,
-  'file_done'             => 0,
-]);
+    'pending'  => count($queue),
+    'done'     => 0,
+    'total'    => count($queue),
+    'queue'    => array_values($queue),
+    'started'  => time(),
+    'mode'     => 'add',
 
+    'current_attachment_id' => 0,
+    'current_filename'      => '',
+    'file_pending'          => 0,
+    'file_done'             => 0,
+  ]);
 
-  wp_send_json_success(['updated' => $queued]);
+  wp_send_json_success(['updated' => $updated]);
 });
+
+
+
+// ─────────────────────────────
+// HUD job start (compat shim)
+// Fixes: Fatal error "Call to undefined function alexk_job_start()"
+// ─────────────────────────────
+if (!function_exists('alexk_job_start')) {
+  function alexk_job_start($mode_or_args = [], $maybe_queue = null, $maybe_attachment_ids = null): string {
+  // Supports BOTH:
+  // 1) alexk_job_start([ 'mode' => 'remove', ... ])
+  // 2) alexk_job_start('remove', $queueArray, $attachmentIdsArray)
+
+  $args = [];
+
+  // New style: first arg is an associative array
+  if (is_array($mode_or_args)) {
+    $args = $mode_or_args;
+  } else {
+    // Legacy style: (string $mode, array $queue, array $attachment_ids)
+    $mode = is_string($mode_or_args) ? $mode_or_args : '';
+    $queue = is_array($maybe_queue) ? $maybe_queue : [];
+    $attachment_ids = is_array($maybe_attachment_ids) ? $maybe_attachment_ids : [];
+
+    $args = [
+      'mode' => $mode,
+      'queue' => $queue,
+      'attachment_ids' => $attachment_ids,
+      'total' => count($queue),
+      'pending' => count($queue),
+    ];
+  }
+
+  $job_id = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : uniqid('alexk_job_', true);
+
+  $record = array_merge([
+    'job_id'   => $job_id,
+    'started'  => time(),
+    'mode'     => $args['mode'] ?? '',
+    'total'    => (int)($args['total'] ?? 0),
+    'done'     => (int)($args['done'] ?? 0),
+    'pending'  => (int)($args['pending'] ?? ($args['total'] ?? 0)),
+    'current_attachment_id' => (int)($args['current_attachment_id'] ?? 0),
+    'current_filename'      => (string)($args['current_filename'] ?? ''),
+    'file_done'             => (int)($args['file_done'] ?? 0),
+    'file_pending'          => (int)($args['file_pending'] ?? 0),
+  ], $args);
+
+  update_option('alexk_hud_job_' . $job_id, $record, false);
+
+  return $job_id;
+}
+
+  // OLD CODE - Previously worked.
+  // function alexk_job_start(array $args = []): string {
+  //   // Minimal job record so callers can proceed without fatals.
+  //   // If you already have a richer HUD system elsewhere later,
+  //   // you can replace this shim with an include/real implementation.
+  //   $job_id = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : uniqid('alexk_job_', true);
+
+  //   $record = array_merge([
+  //     'job_id'   => $job_id,
+  //     'started'  => time(),
+  //     'mode'     => $args['mode'] ?? '',
+  //     'total'    => (int)($args['total'] ?? 0),
+  //     'done'     => 0,
+  //     'pending'  => (int)($args['pending'] ?? ($args['total'] ?? 0)),
+  //     'current_attachment_id' => 0,
+  //     'current_filename'      => '',
+  //     'file_done'             => 0,
+  //     'file_pending'          => 0,
+  //   ], $args);
+
+  //   // Store where other endpoints can read it (option is simplest + durable).
+  //   update_option('alexk_hud_job_' . $job_id, $record, false);
+
+  //   return $job_id;
+  // }
+}
 
 add_action('wp_ajax_alexk_bulk_remove_from_carousel', function () {
   if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'alexk_bulk_add_to_carousel')) {
@@ -865,79 +968,48 @@ add_action('wp_ajax_alexk_bulk_remove_from_carousel', function () {
   }
 
   $ids = array_filter(array_map('intval', explode(',', (string) $_POST['ids'])));
-  // $queued = 0; OLD CRON
-  $queued = count($ids);
+  $queue = [];
+  $updated = 0;
 
-
+  // 1) Update meta immediately + write cancel markers (FAST)
   foreach ($ids as $attachment_id) {
-    if (!$attachment_id) continue;
+    $attachment_id = (int)$attachment_id;
+    if ($attachment_id <= 0) continue;
     if (get_post_type($attachment_id) !== 'attachment') continue;
 
     update_post_meta($attachment_id, alexk_carousel_meta_key(), '0');
 
-    // Create cancel marker so any in-flight generator stops ASAP
+    // Create cancel marker so any in-flight generator stops ASAP.
     $file = get_attached_file($attachment_id);
     if ($file) {
       $cancel_path = alexk_carousel_cancel_marker_path($attachment_id, $file);
       if ($cancel_path) @file_put_contents($cancel_path, (string) time());
     }
 
-    // $when = time() + 1;
-    // ✅ correct hook for delete OLD CRON
-    // $scheduled = wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
-    // if ($scheduled) $queued++;
-    // wp_schedule_single_event($when, 'alexk_do_delete_derivatives', [$attachment_id]);
-
+    $queue[] = $attachment_id;
+    $updated++;
   }
-  // OLD CRON
-  // alexk_bulk_job_set([
-  //   'pending' => $queued,
-  //   'done'    => 0,
-  //   'started' => time(),
-  //   'mode'    => 'remove',
-  //   'current_attachment_id' => 0,
-  //   'current_filename'      => '',
-  //   'file_pending'          => 0,
-  //   'file_done'             => 0,
-  // ]);
 
+  // 2) Start queue job processed by alexk_bulk_job_status polling (NO freeze)
+  alexk_bulk_job_clear();
   alexk_bulk_job_set([
-  'pending' => $queued,
-  'done'    => 0,
-  'total'   => $queued,
-  'queue'   => array_values($ids),
-  'started' => time(),
-  'mode'    => 'remove',
-  'current_attachment_id' => 0,
-  'current_filename'      => '',
-  'file_pending'          => 0,
-  'file_done'             => 0,
-]);
+    'pending'  => count($queue),
+    'done'     => 0,
+    'total'    => count($queue),
+    'queue'    => array_values($queue),
+    'started'  => time(),
+    'mode'     => 'remove',
 
+    'current_attachment_id' => 0,
+    'current_filename'      => '',
+    'file_pending'          => 0,
+    'file_done'             => 0,
+  ]);
 
-  wp_send_json_success(['updated' => $queued]);
+  wp_send_json_success(['updated' => $updated]);
 });
 
-// OLD CRON
-// add_action('wp_ajax_alexk_bulk_job_status', function () {
-//   if (!current_user_can('upload_files')) {
-//     wp_send_json_error(['message' => 'Permission denied'], 403);
-//   }
 
-//   $job = alexk_bulk_job_get();
-
-//   wp_send_json_success([
-//     'pending'               => (int)($job['pending'] ?? 0),
-//     'done'                  => (int)($job['done'] ?? 0),
-//     'mode'                  => (string)($job['mode'] ?? ''),
-//     'started'               => (int)($job['started'] ?? 0),
-
-//     'current_attachment_id' => (int)($job['current_attachment_id'] ?? 0),
-//     'current_filename'      => (string)($job['current_filename'] ?? ''),
-//     'file_pending'          => (int)($job['file_pending'] ?? 0),
-//     'file_done'             => (int)($job['file_done'] ?? 0),
-//   ]);
-// });
 add_action('wp_ajax_alexk_bulk_job_status', function () {
   if (!current_user_can('upload_files')) {
     wp_send_json_error(['message' => 'Permission denied'], 403);
@@ -945,110 +1017,87 @@ add_action('wp_ajax_alexk_bulk_job_status', function () {
 
   $job = alexk_bulk_job_get();
 
-  // Elementor-safe worker: advance 4 item per status poll
   $mode  = (string)($job['mode'] ?? '');
-  $queue = $job['queue'] ?? [];
-  $total = (int)($job['total'] ?? ($job['pending'] ?? 0));
-  $batch = 2; // increase to 8 later if server can handle it
+  $queue = is_array($job['queue'] ?? null) ? $job['queue'] : [];
+  $total = (int)($job['total'] ?? count($queue));
 
+  // UI-safe execution limits
+  $batch = 1;               // one attachment per poll (stable UI)
+  $t0 = microtime(true);
+  $time_budget = 0.60;      // hard cap per request (seconds)
 
-  // Slow, single file process version.
-  // if (!empty($job['started']) && is_array($queue) && !empty($queue) && ($mode === 'add' || $mode === 'remove')) {
-  //   $attachment_id = (int)array_shift($queue);
+  if (!empty($job['started']) && !empty($queue) && ($mode === 'add' || $mode === 'remove')) {
 
-  //   if ($attachment_id > 0 && get_post_type($attachment_id) === 'attachment') {
-  //     if ($mode === 'add') {
-  //       alexk_generate_carousel_derivatives_for_attachment($attachment_id);
-  //     } else {
-  //       alexk_delete_carousel_derivatives_for_attachment($attachment_id);
-  //     }
-  //   }
+    for ($i = 0; $i < $batch; $i++) {
+      if (empty($queue)) break;
+      if ((microtime(true) - $t0) > $time_budget) break;
 
-  //   // update job
-  //   $job['queue'] = array_values($queue);
-  //   $job['done']  = (int)($job['done'] ?? 0) + 1;
-  //   $job['pending'] = max(0, (int)($job['pending'] ?? 0) - 1);
+      $attachment_id = (int) array_shift($queue);
+      if ($attachment_id <= 0 || get_post_type($attachment_id) !== 'attachment') {
+        continue;
+      }
 
+      // ---- TRUTHFUL HUD STATE (set BEFORE work starts) ----
+      $file = get_attached_file($attachment_id);
+      $job['current_attachment_id'] = $attachment_id;
+      $job['current_filename']      = $file ? basename($file) : '';
+      $job['file_pending']          = 0;
+      $job['file_done']             = 0;
 
-  //   // finish?
-  //   if ($total > 0 && (int)$job['done'] >= $total) {
-  //     alexk_bulk_job_clear();
-  //     $job = alexk_bulk_job_get(); // now cleared
-  //   } else {
-  //     alexk_bulk_job_set($job);
-  //   }
-  // }
+      alexk_bulk_job_set($job); // persist immediately so HUD updates NOW
 
-  // Fast, 5 - 8 file version
-  if (!empty($job['started']) && is_array($queue) && !empty($queue) && ($mode === 'add' || $mode === 'remove')) {
-
-  for ($i = 0; $i < $batch; $i++) {
-    if (empty($queue)) break;
-
-    $attachment_id = (int)array_shift($queue);
-
-    if ($attachment_id > 0 && get_post_type($attachment_id) === 'attachment') {
+      // ---- DO THE ACTUAL WORK ----
       if ($mode === 'add') {
         alexk_generate_carousel_derivatives_for_attachment($attachment_id);
       } else {
         alexk_delete_carousel_derivatives_for_attachment($attachment_id);
       }
+
+      // ---- AFTER WORK: record last completed (truth) ----
+      $job['last_completed_attachment_id'] = $attachment_id;
+      $job['last_completed_filename']      = $job['current_filename'];
+
+      // ---- PROGRESS COUNTERS ----
+      $job['done']    = (int)($job['done'] ?? 0) + 1;
+      $job['pending'] = max(0, $total - $job['done']);
     }
 
-    $job['done']    = (int)($job['done'] ?? 0) + 1;
-    $job['pending'] = max(0, (int)($job['pending'] ?? 0) - 1);
+    // Persist remaining queue
     $job['queue'] = array_values($queue);
-    alexk_bulk_job_set($job);
 
-    // finish?
-    if ($total > 0 && (int)$job['done'] >= $total) {
-      alexk_bulk_job_clear();
-      $job = alexk_bulk_job_get(); // now cleared
-      $queue = [];
-      break;
-    }
-  }
+    // Finish cleanly
+    if ((int)($job['pending'] ?? 0) <= 0) {
+      // NOTE: we intentionally do NOT erase last_completed_* so the UI can show it after completion.
+      $lastCompletedId = (int)($job['last_completed_attachment_id'] ?? 0);
+      $lastCompletedFn = (string)($job['last_completed_filename'] ?? '');
 
-  // Persist remaining queue if job still active
-  if (!empty($job['started'])) {
-    $job['queue'] = array_values($queue);
-    alexk_bulk_job_set($job);
-  }
-}
-
-
-  $job = alexk_bulk_job_get();
-  // Normalize counters from queue (prevents drift / "stuck 2 short")
-if (!empty($job['started'])) {
-  $queue = $job['queue'] ?? [];
-  $queueCount = is_array($queue) ? count($queue) : 0;
-
-  $total = (int)($job['total'] ?? 0);
-  if ($total > 0) {
-    $job['pending'] = $queueCount;
-    $job['done']    = max(0, $total - $queueCount);
-
-    // If queue is empty, job is done.
-    if ($queueCount === 0) {
       alexk_bulk_job_clear();
       $job = alexk_bulk_job_get();
+
+      $job['last_completed_attachment_id'] = $lastCompletedId;
+      $job['last_completed_filename']      = $lastCompletedFn;
+
+      alexk_bulk_job_set($job);
     } else {
       alexk_bulk_job_set($job);
     }
   }
-}
-
 
   wp_send_json_success([
     'pending'               => (int)($job['pending'] ?? 0),
     'done'                  => (int)($job['done'] ?? 0),
-    'total'                 => (int)($job['total'] ?? ($job['pending'] ?? 0)),
+    'total'                 => (int)($job['total'] ?? 0),
     'mode'                  => (string)($job['mode'] ?? ''),
     'started'               => (int)($job['started'] ?? 0),
+
 
     'current_attachment_id' => (int)($job['current_attachment_id'] ?? 0),
     'current_filename'      => (string)($job['current_filename'] ?? ''),
     'file_pending'          => (int)($job['file_pending'] ?? 0),
     'file_done'             => (int)($job['file_done'] ?? 0),
+
+    // ✅ NEW: stable “last completed” fields (survive completion)
+    'last_completed_attachment_id' => (int)($job['last_completed_attachment_id'] ?? 0),
+    'last_completed_filename'      => (string)($job['last_completed_filename'] ?? ''),
   ]);
 });
