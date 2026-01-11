@@ -124,6 +124,15 @@
   }
 }
 
+// Total Carousel count code:
+function showCarouselIncludedCountNotice() {
+  const n = Number(window?.ALEXK_BULK?.included_count ?? NaN);
+  if (!Number.isFinite(n)) return;
+
+  const label = n === 1 ? "item" : "items";
+  showWpNotice(`Included in carousel: ${n} ${label}.`, "info");
+}
+
 
   // UI progress element
   function ensureProgressNoticeEl() {
@@ -481,6 +490,7 @@ function applyHoverMetaToTile(tile, model) {
 
 
   let inFlight = false;
+  let wasActive = false; // tracks if we ever saw an active job during this pump session
 
   const pumpId = setInterval(async () => {
     if (inFlight) return; // prevents overlapping calls
@@ -512,25 +522,46 @@ function applyHoverMetaToTile(tile, model) {
       // Only update if we actually have a filename
       if (lastDone) setLastDoneText(lastDone, safeMode);
 
-
-
-
       const total = Number(data?.total ?? 0);
+      const pending = Number(data?.pending ?? 0);
 
       // No active job → hide progress UI, but keep “Last completed” visible.
       if (!Number.isFinite(total) || total <= 0) {
         renderBulkProgress({ total: 0, pending: 0, done: 0 });
+       
+        if (wasActive) {
+          clearInterval(pumpId);
+          document.__alexkProgressPump = false;
+
+          // Refresh so PHP-reported counts (like included_count) update immediately
+          if (!window.__alexkReloadAfterJobDone) {
+            window.__alexkReloadAfterJobDone = true;
+            queueNoticeForAfterReload("Carousel update complete. Count refreshed.", "success");
+            setTimeout(() => window.location.reload(), 150);
+          }
+        }
+
         return;
+      
       }
 
+      //Job is active 
+      wasActive = true;
       renderBulkProgress(data);
 
       // If finished, stop polling and remove progress notice (keep last-done notice)
-      const pending = Number(data?.pending ?? 0);
+      // 
       if (Number.isFinite(pending) && pending <= 0) {
         clearInterval(pumpId);
         document.__alexkProgressPump = false;
         renderBulkProgress({ total: 0, pending: 0, done: 0 });
+
+        if (!window.__alexkReloadAfterJobDone) {
+            window.__alexkReloadAfterJobDone = true;
+            queueNoticeForAfterReload("Carousel update complete. Count refreshed.", "success");
+            setTimeout(() => window.location.reload(), 150);
+          }  
+
         return;
       }
     } catch {
@@ -780,6 +811,10 @@ function applyHoverMetaToTile(tile, model) {
   } catch (e) {
     console.error("ALEXK boot: showQueuedNoticeIfAny failed", e);
   }
+
+
+  // Carousel count (admin notice)
+  showCarouselIncludedCountNotice();
 
   // Patch tile rendering so dots + alexk-in-carousel class reflect REAL model state.
   // Without this, tiles can say "not in carousel" while folders exist (and vice versa).

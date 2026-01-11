@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Alex K - Client Image Carousel
- * Description: Image Carousel for displaying documentation. Bulk add / remove from grid and list view. Progress banners and tags provide in-operation conversion details.
- * Version: 1.3.4
+ * Description: Image Carousel for displaying documentation. Bulk add / remove from grid and list view. Color accurate, responsive image conversion.
+ * Version: 1.3.5
  */
 
 if (!defined('ABSPATH')) exit;
