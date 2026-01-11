@@ -31,20 +31,6 @@ body.admin-bar .alexk-carousel-page{
   height: calc(100svh - var(--wp-admin--admin-bar--height, 32px));
 }
 
-/* Flag for enqueue confirmation */
-/* .alexk-carousel-page::before {
-  content: "frontend.css LOADED";
-  position: fixed;
-  top: 2rem;
-  left: 0;
-  z-index: 99999;
-  background: lime;
-  color: black;
-  font-size: 12px;
-  font-family: monospace;
-  padding: 4px 6px;
-} */
-
 /* =========================
    CAROUSEL PAGE — VIEWPORT FIT (ADMIN BAR SAFE)
    ========================= */
@@ -87,11 +73,7 @@ body.admin-bar .alexk-carousel-page {
   max-height: 100%;
 }
 
-/* .alexk-carousel,
-.alexk-carousel-page,
-.alexk-carousel picture {
-  cursor: default;
-} */
+
 .alex-carousel{
   cursor: default;
 }
@@ -111,6 +93,39 @@ body.admin-bar .alexk-carousel-page {
   width: min(1400px, 100%);
   max-height: 1000px; /* or 1000px */
 }
+
+/* -----------------------------
+   Contact landing page centering
+------------------------------ */
+
+.alexk-contact-cover {
+  min-height: 100vh;              /* fill viewport */
+  display: flex;
+  align-items: center;            /* vertical center */
+  justify-content: center;        /* horizontal center */
+  padding: 0;
+}
+
+.alexk-contact-cover .wp-block-cover__inner-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.alexk-contact-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;                      /* spacing between name / email / fax */
+}
+
+/* Ensure images behave responsively */
+.alexk-contact-stack img {
+  max-width: 1400px;
+  height: auto;
+  display: block;
+}
+
 
 /* Desktop breathing room */
 .alexk-carousel-page {

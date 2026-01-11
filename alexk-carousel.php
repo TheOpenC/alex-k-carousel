@@ -571,7 +571,22 @@ add_action('wp_enqueue_scripts', function () {
   if (!is_singular()) return;
   $post = get_post();
   if (!$post) return;
-  if (!has_shortcode($post->post_content, 'alexk_carousel')) return;
+  // if (!has_shortcode($post->post_content, 'alexk_carousel')) return;
+
+  // Adds CSS to Landing Page
+  $content = (string) ($post->post_content ?? '');
+
+  // Load frontend assets on:
+  // - carousel pages using the shortcode
+  // - the contact/landing page using Gutenberg blocks with our classes
+  $needs_assets =
+    has_shortcode($content, 'alexk_carousel') ||
+    (strpos($content, 'alexk-contact-cover') !== false) ||
+    (strpos($content, 'alexk-contact-stack') !== false);
+
+  if (!$needs_assets) return;
+  // end of css enqueue
+
 
   $base_url  = plugin_dir_url(__FILE__);
   $base_path = plugin_dir_path(__FILE__);
@@ -704,11 +719,27 @@ add_action('admin_enqueue_scripts', function ($hook) {
 
   $js_handle = 'alexk-carousel-admin-bulk';
   $js_src    = plugins_url('js/admin-bulk.js', __FILE__);
-  wp_enqueue_script($js_handle, $js_src, ['media-views'], filemtime(plugin_dir_path(__FILE__) . 'js/admin-bulk.js'), true);
+  wp_enqueue_script($js_handle, $js_src, ['media-views'], '0.2.9', true);
+  
+  // filemtime(plugin_dir_path(__FILE__) . 'js/admin-bulk.js'), true); Eliminated for carousel count
+
+   // Count how many attachments are currently included in the carousel
+  $q = new WP_Query([
+    'post_type'      => 'attachment',
+    'post_status'    => 'inherit',
+    'posts_per_page' => 1,          // we only need found_posts
+    'paged'          => 1,
+    'fields'         => 'ids',
+    'no_found_rows'  => false,      // ensure found_posts is computed
+    'meta_key'       => alexk_carousel_meta_key(),
+    'meta_value'     => '1',
+  ]);
+  $included_count = (int) ($q->found_posts ?? 0);
 
 
   wp_add_inline_script($js_handle, 'window.ALEXK_BULK = ' . wp_json_encode([
     'nonce' => wp_create_nonce('alexk_bulk_add_to_carousel'),
+    'included_count' => $included_count,
   ]) . ';', 'before');
 });
 

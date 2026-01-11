@@ -15,9 +15,6 @@ function onDomReady() {
   if (images.length === 0) return;
 
   const state = createCarouselState(images);
-  // OLD
-  // updateCarouselImage(imgElement, getNextImage(state));
-  // carousel.addEventListener('click', onCarouselClick);
 
   // PRELOAD
   showNextAndPreload(carousel, imgElement, state);
@@ -25,16 +22,11 @@ function onDomReady() {
 
   // store state on the carousel so the click handler can access it
   carousel._alexkCarousel = { imgElement: imgElement, state: state };
+
+  // Keyboard navigation (ArrowLeft / ArrowRight / Space)
+  installKeyboardNavigation(carousel);
 }
 
-// OLD
-// function onCarouselClick(event) {
-//   const carousel = event.currentTarget;
-//   const store = carousel._alexkCarousel;
-//   if (!store) return;
-
-//   updateCarouselImage(store.imgElement, getNextImage(store.state));
-// }
 
 // PRELOAD
 function onCarouselClick(event) {
@@ -45,6 +37,53 @@ function onCarouselClick(event) {
   showNextAndPreload(carousel, store.imgElement, store.state);
 }
 
+
+// NEW KEYBOARD CODE
+function installKeyboardNavigation(carouselEl) {
+  // Install once per page load
+  if (document.__alexkCarouselKeyboardNavInstalled) return;
+  document.__alexkCarouselKeyboardNavInstalled = true;
+
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      const store = carouselEl?._alexkCarousel;
+      if (!store) return;
+
+      // Don't steal keys while typing or using modifiers
+      if (isTypingContext(event)) return;
+
+      const key = event.key;
+
+      // Forward-only navigation: ArrowRight and Spacebar advance
+      if (key === 'ArrowRight' || key === ' ') {
+        // Spacebar normally scrolls the page — stop that
+        if (key === ' ') event.preventDefault();
+        showNextAndPreload(carouselEl, store.imgElement, store.state);
+        return;
+      }
+    // No backwards keyboard nav by design. Only forward movement
+    },
+    { passive: false }
+  );
+}
+
+function isTypingContext(event) {
+  if (!event) return true;
+  if (event.altKey || event.ctrlKey || event.metaKey) return true;
+
+  const t = event.target;
+  if (!t || !(t instanceof Element)) return false;
+
+  if (t.matches('input, textarea, select, button')) return true;
+  if (t.isContentEditable) return true;
+
+  // Also ignore if we're inside any editable element
+  const editableParent = t.closest('[contenteditable="true"]');
+  if (editableParent) return true;
+
+  return false;
+} // Keyboard advance code ends here
 
 function createCarouselState(images) {
   return {
@@ -60,26 +99,6 @@ function getNextImage(state) {
   // Refill + reshuffle when empty
   // PRELOAD
   ensureDeckReady(state);
-
-  // OLD
-  // if (!state.deck || state.deck.length === 0) {
-  //   let tries = 0;
-
-  //   do {
-  //     state.deck = state.allImages.slice();
-  //     shuffleInPlace(state.deck);
-  //     tries += 1;
-
-  //     // Break if we somehow can't avoid it (e.g., only 1 image)
-  //     if (tries > 10) break;
-
-  //     // If the next candidate (last element, since we pop) equals lastShown, reshuffle
-  //   } while (
-  //     state.lastShown &&
-  //     state.deck.length > 1 &&
-  //     state.deck[state.deck.length - 1].fallback === state.lastShown
-  //   );
-  // }
 
   const next = state.deck.pop();
   if (next && next.fallback) state.lastShown = next.fallback;
@@ -157,29 +176,6 @@ function preloadImageForCarousel(carouselEl, imageObj) {
   document.head.appendChild(link);
 } // END OF PRELOAD CODE
 
-// function createCarouselState(images) {
-//   const imageDeck = images.slice();   // copy (we will mutate the imageDeck)
-//   shuffleInPlace(imageDeck);
-
-//   return {
-//     imageDeck: imageDeck,
-//     index: 0
-//   };
-// }
-
-// function getNextImage(state) {
-//   if (state.imageDeck.length === 0) return null;
-
-//   if (state.index >= state.imageDeck.length) {
-//     shuffleInPlace(state.imageDeck);
-//     state.index = 0;
-//   }
-
-//   const value = state.imageDeck[state.index];
-//   state.index += 1;
-//   return value;
-// }
-
 function findCarousel() {
   return document.querySelector('[data-images]');
 }
@@ -248,33 +244,5 @@ function updateCarouselImage(imgElement, imageObj) {
 }
 
 
-// function updateCarouselImage(imgElement, imageObj) {
-//   if (!imgElement) return;
-//   if (!imageObj) return;
-
-//   // Prefer updating the <picture> source if it exists
-//   const pictureEl = imgElement.closest('picture');
-//   const sourceEl = pictureEl ? pictureEl.querySelector('source[type="image/webp"]') : null;
-
-//   // Update WebP candidate set
-//   if (sourceEl && imageObj.webp_srcset) {
-//     sourceEl.srcset = imageObj.webp_srcset;
-//     sourceEl.sizes = imageObj.sizes || '90vw';
-//   }
-
-//   // Update fallback <img> (JPEG srcset), keep original src as final fallback
-//   imgElement.src = imageObj.src;
-
-//   if (imageObj.jpg_srcset) {
-//     imgElement.srcset = imageObj.jpg_srcset;
-//   } else {
-//     // If no jpg srcset provided, clear it so the browser doesn't stick to an old one
-//     imgElement.removeAttribute('srcset');
-//   }
-
-//   imgElement.sizes = imageObj.sizes || '90vw';
-
-//   if (typeof imageObj.alt === 'string') imgElement.alt = imageObj.alt;
-// }
 
 
