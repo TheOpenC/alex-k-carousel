@@ -143,9 +143,28 @@ body.admin-bar .alexk-carousel-page {
   padding: 4rem;
 }
 
+
 /* Mobile: remove padding so image can breathe edge-to-edge */
 @media (max-width: 768px) {
   .alexk-carousel-page {
     padding: 0;
   }
+  /* Mobile-safe absolute centering */
+.alexk-contact-cover {
+  position: relative;
+  min-height: 100vh;
+}
+
+/* True visual centering */
+.alexk-contact-stack {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
 }
