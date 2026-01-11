@@ -136,13 +136,10 @@ body.admin-bar .alexk-carousel-page {
   margin-right: 0 !important;
 }
 
-
-
 /* Desktop breathing room */
 .alexk-carousel-page {
   padding: 4rem;
 }
-
 
 /* Mobile: remove padding so image can breathe edge-to-edge */
 @media (max-width: 768px) {
