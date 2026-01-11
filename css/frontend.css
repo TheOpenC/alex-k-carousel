@@ -119,12 +119,23 @@ body.admin-bar .alexk-carousel-page {
   gap: 12px;                      /* spacing between name / email / fax */
 }
 
-/* Ensure images behave responsively */
+/* Landing images: match LocalWP behavior (stable size, not fluid) */
 .alexk-contact-stack img {
-  max-width: 1400px;
+  width: auto !important;       /* don't force fill-container scaling */
+  max-width: 1400px !important; /* cap at your intended presentation size */
   height: auto;
   display: block;
 }
+
+/* Elementor/Gutenberg: prevent "alignwide" from stretching the image wrapper */
+.wp-block-cover.alexk-contact-cover figure.alignwide,
+.wp-block-cover.alexk-contact-cover .wp-block-image.alignwide {
+  width: auto !important;
+  max-width: 100%;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
 
 
 /* Desktop breathing room */

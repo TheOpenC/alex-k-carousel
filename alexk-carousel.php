@@ -562,6 +562,35 @@ function alexk_wp_editor_resize_and_write_no_mkdir(string $src, string $dst, int
   return (!is_wp_error($saved) && !empty($saved['path']) && file_exists($saved['path']));
 }
 
+/* =========================================================
+ * CONSOLE NOISE REDUCTION (admin only, upload.php only)
+ * ======================================================= */
+
+/**
+ * Removes jQuery Migrate ONLY on Media Library (upload.php).
+ * This suppresses the "JQMIGRATE: Migrate is installed" console message.
+ *
+ * Scope is intentionally narrow to avoid breaking other admin pages/plugins.
+ */
+add_action('admin_enqueue_scripts', function ($hook) {
+  if ($hook !== 'upload.php') return;
+
+  $scripts = wp_scripts();
+  if (!$scripts || empty($scripts->registered['jquery'])) return;
+
+  $jquery = $scripts->registered['jquery'];
+
+  if (is_array($jquery->deps) && in_array('jquery-migrate', $jquery->deps, true)) {
+    $jquery->deps = array_values(array_diff($jquery->deps, ['jquery-migrate']));
+  }
+}, 1);
+
+
+/* =========================================================
+ * FRONTEND: enqueue assets + shortcode
+ * ======================================================= */
+
+
 
 /* =========================================================
  * FRONTEND: enqueue assets + shortcode
@@ -711,15 +740,37 @@ add_shortcode('alexk_carousel', function($atts = []) {
 
 add_action('admin_enqueue_scripts', function ($hook) {
   if ($hook !== 'upload.php') return;
+
+/**
+ * Elementor Hosting sometimes injects Elementor admin JS on upload.php
+ * without its expected config object, causing:
+ *   "elementorCommonConfig is not defined"
+ * This is cosmetic but noisy; dequeue ONLY that one script on Media Library.
+ */
+global $wp_scripts;
+if ($wp_scripts && !empty($wp_scripts->registered) && is_array($wp_scripts->registered)) {
+  foreach ($wp_scripts->registered as $handle => $obj) {
+    $src = is_object($obj) ? (string)($obj->src ?? '') : '';
+    // Match Elementor's admin bundle (keep this specific)
+    if ($src && strpos($src, 'elementor') !== false && strpos($src, '/assets/js/admin') !== false) {
+      wp_dequeue_script($handle);
+      // do not deregister globally; just remove from this page load
+    }
+  }
+}
+
   wp_enqueue_media();
 
   $css_handle = 'alexk-carousel-admin';
   $css_src = plugins_url('css/admin.css', __FILE__);
-  wp_enqueue_style($css_handle, $css_src, [], '0.2.9');
+  $css_ver = @filemtime(plugin_dir_path(__FILE__) . 'css/admin.css') ?: '0.2.9';
+  wp_enqueue_style($css_handle, $css_src, [], $css_ver);
 
   $js_handle = 'alexk-carousel-admin-bulk';
   $js_src    = plugins_url('js/admin-bulk.js', __FILE__);
-  wp_enqueue_script($js_handle, $js_src, ['media-views'], '0.2.9', true);
+  $js_ver = @filemtime(plugin_dir_path(__FILE__) . 'js/admin-bulk.js') ?: '0.2.9';
+  wp_enqueue_script($js_handle, $js_src, ['media-views'], $js_ver, true);
+
   
   // filemtime(plugin_dir_path(__FILE__) . 'js/admin-bulk.js'), true); Eliminated for carousel count
 
