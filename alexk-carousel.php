@@ -586,11 +586,6 @@ add_action('admin_enqueue_scripts', function ($hook) {
 }, 1);
 
 
-/* =========================================================
- * FRONTEND: enqueue assets + shortcode
- * ======================================================= */
-
-
 
 /* =========================================================
  * FRONTEND: enqueue assets + shortcode
@@ -1012,31 +1007,7 @@ if (!function_exists('alexk_job_start')) {
   return $job_id;
 }
 
-  // OLD CODE - Previously worked.
-  // function alexk_job_start(array $args = []): string {
-  //   // Minimal job record so callers can proceed without fatals.
-  //   // If you already have a richer HUD system elsewhere later,
-  //   // you can replace this shim with an include/real implementation.
-  //   $job_id = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : uniqid('alexk_job_', true);
 
-  //   $record = array_merge([
-  //     'job_id'   => $job_id,
-  //     'started'  => time(),
-  //     'mode'     => $args['mode'] ?? '',
-  //     'total'    => (int)($args['total'] ?? 0),
-  //     'done'     => 0,
-  //     'pending'  => (int)($args['pending'] ?? ($args['total'] ?? 0)),
-  //     'current_attachment_id' => 0,
-  //     'current_filename'      => '',
-  //     'file_done'             => 0,
-  //     'file_pending'          => 0,
-  //   ], $args);
-
-  //   // Store where other endpoints can read it (option is simplest + durable).
-  //   update_option('alexk_hud_job_' . $job_id, $record, false);
-
-  //   return $job_id;
-  // }
 }
 
 add_action('wp_ajax_alexk_bulk_remove_from_carousel', function () {

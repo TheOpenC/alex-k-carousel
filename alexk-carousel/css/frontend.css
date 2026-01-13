@@ -136,8 +136,6 @@ body.admin-bar .alexk-carousel-page {
   margin-right: 0 !important;
 }
 
-
-
 /* Desktop breathing room */
 .alexk-carousel-page {
   padding: 4rem;
@@ -148,4 +146,52 @@ body.admin-bar .alexk-carousel-page {
   .alexk-carousel-page {
     padding: 0;
   }
+
+@media (max-width: 768px) {
+
+  /* Use iOS-safe viewport height + safe-area padding */
+  .alexk-contact-cover {
+    min-height: 100svh !important;
+    min-height: 100dvh !important;
+
+    /* Keep flex centering */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    /* Avoid notch / bottom bar skew */
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding-left: env(safe-area-inset-left, 0px) !important;
+    padding-right: env(safe-area-inset-right, 0px) !important;
+  }
+
+  /* Ensure the Cover's inner container is the centering box */
+  .alexk-contact-cover .wp-block-cover__inner-container {
+    width: 100% !important;
+    min-height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* IMPORTANT: override your earlier absolute-centering */
+  .alexk-contact-stack {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    transform: none !important;
+
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* Make sure images don't overflow viewport width */
+  .alexk-contact-stack img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+}
 }
