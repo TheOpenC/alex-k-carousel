@@ -94,6 +94,12 @@ body.admin-bar .alexk-carousel-page {
   max-height: 1000px; /* or 1000px */
 }
 
+/* Desktop breathing room */ 
+.alexk-carousel-page {
+  padding: 4rem;
+}
+
+
 /* -----------------------------
    Contact landing page centering
 ------------------------------ */
@@ -104,6 +110,7 @@ body.admin-bar .alexk-carousel-page {
   align-items: center;            /* vertical center */
   justify-content: center;        /* horizontal center */
   padding: 0;
+  
 }
 
 .alexk-contact-cover .wp-block-cover__inner-container {
@@ -155,6 +162,26 @@ body.admin-bar .alexk-carousel-page {
 }
 /* END OF HITBOX  */
 
+/* Resolve mail:to link */
+/* Make hitbox overlays stay inside their own blocks */
+.wp-block-group.alexk-hitbox{
+  position: relative;
+}
+
+/* Ensure the overlay is clickable only in hitbox areas */
+.wp-block-group.alexk-hitbox .alexk-hitbox-link{
+  position: absolute;
+  inset: 0;
+  display: block;
+  z-index: 1;
+}
+
+/* Ensure the actual contact images/links sit above hitboxes */
+.wp-block-group.alexk-contact-stack{
+  position: relative;
+  z-index: 2;
+}
+/* end resolve */
 
 
 /* Landing images: match LocalWP behavior (stable size, not fluid) */
@@ -203,13 +230,17 @@ body.admin-bar .alexk-carousel-page {
   display: block;
 }
 
-/* Mobile: remove padding so image can breathe edge-to-edge */
+  
+/* ================ 
+===================
+= Mobile
+===================
+*/
 @media (max-width: 768px) {
+  /* Mobile: remove padding so image can breathe edge-to-edge */
   .alexk-carousel-page {
     padding: 0;
   }
-
-@media (max-width: 768px) {
 
   /* Use iOS-safe viewport height + safe-area padding */
   .alexk-contact-cover {
@@ -256,21 +287,31 @@ body.admin-bar .alexk-carousel-page {
     height: auto !important;
   }
 }
-}
+
 
 /* ++++++++++++++++++ */
-/* Safari painting issue */
+/* Safari selection/painting issue */
 /* ==================== */
-/* CAROUSEL PAGE: prevent selection + drag (all browsers) */
-.alexk-carousel-page,
-.alexk-carousel-page * {
-  -webkit-user-select: none;
+
+/* Do NOT disable selection on the whole page subtree (Safari bug) */
+/* Instead, disable only on the media itself. */
+
+.alexk-carousel img,
+.alexk-carousel picture {
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+}
+
+/* Optional: remove tap highlight on the interactive image only */
+.alexk-carousel img {
   -webkit-tap-highlight-color: transparent;
 }
 
-.alexk-carousel-page img {
-  -webkit-user-drag: none;
-  user-drag: none;
+/* Safari-only: force a paint boundary to stop "ghost selection" */
+@supports (-webkit-touch-callout: none) {
+  .alexk-carousel {
+    transform: translateZ(0);
+  }
 }
-

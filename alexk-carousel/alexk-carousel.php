@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Alex K - Client Image Carousel v1
  * Description: Image Carousel for displaying documentation. Bulk add / remove from grid and list view. Color accurate, responsive image conversion.
- * Version: 1.3.8
+ * Version: 1.3.9
  */
 
 if (!defined('ABSPATH')) exit;
