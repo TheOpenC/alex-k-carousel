@@ -266,17 +266,28 @@ body.admin-bar .alexk-carousel-page {
 }
 
 /* ++++++++++++++++++ */
-/* Safari painting issue */
+/* Safari selection/painting issue */
 /* ==================== */
-/* CAROUSEL PAGE: prevent selection + drag (all browsers) */
-.alexk-carousel-page,
-.alexk-carousel-page * {
-  -webkit-user-select: none;
+
+/* Do NOT disable selection on the whole page subtree (Safari bug) */
+/* Instead, disable only on the media itself. */
+
+.alexk-carousel img,
+.alexk-carousel picture {
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+}
+
+/* Optional: remove tap highlight on the interactive image only */
+.alexk-carousel img {
   -webkit-tap-highlight-color: transparent;
 }
 
-.alexk-carousel-page img {
-  -webkit-user-drag: none;
-  user-drag: none;
+/* Safari-only: force a paint boundary to stop "ghost selection" */
+@supports (-webkit-touch-callout: none) {
+  .alexk-carousel {
+    transform: translateZ(0);
+  }
 }
