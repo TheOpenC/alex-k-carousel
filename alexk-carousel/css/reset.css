@@ -49,15 +49,3 @@ table {
 	border-spacing: 0;
 }
 
-/* .alexk-carousel-page::after {
-  content: "reset.css CSS LOADED";
-  position: fixed;
-  top: 2rem;
-  left: 8rem;
-  z-index: 99999;
-  background: rgb(251, 48, 2);
-  color: black;
-  font-size: 12px;
-  font-family: monospace;
-  padding: 4px 6px;
-} */

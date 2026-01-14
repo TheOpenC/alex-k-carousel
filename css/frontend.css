@@ -94,6 +94,12 @@ body.admin-bar .alexk-carousel-page {
   max-height: 1000px; /* or 1000px */
 }
 
+/* Desktop breathing room */
+.alexk-carousel-page {
+  padding: 4rem;
+}
+
+
 /* -----------------------------
    Contact landing page centering
 ------------------------------ */
@@ -104,6 +110,7 @@ body.admin-bar .alexk-carousel-page {
   align-items: center;            /* vertical center */
   justify-content: center;        /* horizontal center */
   padding: 0;
+  
 }
 
 .alexk-contact-cover .wp-block-cover__inner-container {
@@ -122,7 +129,7 @@ body.admin-bar .alexk-carousel-page {
 /* Landing images: match LocalWP behavior (stable size, not fluid) */
 .alexk-contact-stack img {
   width: auto !important;       /* don't force fill-container scaling */
-  max-width: 1400px !important; /* cap at your intended presentation size */
+  max-width: min(1400px, 100%) !important; /* cap at your intended presentation size */
   height: auto;
   display: block;
 }
@@ -136,18 +143,12 @@ body.admin-bar .alexk-carousel-page {
   margin-right: 0 !important;
 }
 
-/* Desktop breathing room */
-.alexk-carousel-page {
-  padding: 4rem;
-}
-
 /* Mobile: remove padding so image can breathe edge-to-edge */
 @media (max-width: 768px) {
+
   .alexk-carousel-page {
     padding: 0;
   }
-
-@media (max-width: 768px) {
 
   /* Use iOS-safe viewport height + safe-area padding */
   .alexk-contact-cover {
@@ -194,21 +195,21 @@ body.admin-bar .alexk-carousel-page {
     height: auto !important;
   }
 }
+
+
+/* ++++++++++++++++++ */
+/* Safari painting issue */
+/* ==================== */
+/* CAROUSEL PAGE: prevent selection + drag (all browsers) */
+.alexk-carousel-page,
+.alexk-carousel-page * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Safari desktop: prevent weird selection highlight rectangles on carousel */
-@supports (-webkit-touch-callout: none) {
-
-  .alexk-carousel-page,
-  .alexk-carousel,
-  .alexk-carousel * {
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .alexk-carousel img {
-    -webkit-user-drag: none;
-    user-drag: none;
-  }
+.alexk-carousel-page img {
+  -webkit-user-drag: none;
+  user-drag: none;
 }
+

@@ -119,6 +119,44 @@ body.admin-bar .alexk-carousel-page {
   gap: 12px;                      /* spacing between name / email / fax */
 }
 
+/* ======================================= */
+/* Hitbox code for space above and below contact images */
+/* ======================================== */
+
+/* Let the cover's inner layout actually stretch to the cover height */
+.alexk-contact-cover .wp-block-cover__inner-container,
+.alexk-contact-cover .wp-block-columns{
+  min-height: 100%;
+}
+
+/* Make the middle (75%) column a vertical flex layout */
+.alexk-contact-col{
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* Top/bottom empty hitbox blocks grow to fill leftover space */
+.alexk-contact-col > .alexk-hitbox{
+  flex: 1 1 auto;
+  position: relative;
+}
+
+/* Contact images stay natural height (do NOT flex-grow) */
+.alexk-contact-col > .alexk-contact-stack{
+  flex: 0 0 auto;
+}
+
+/* Link fills the whole hitbox area */
+.alexk-hitbox-link{
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+/* END OF HITBOX  */
+
+
+
 /* Landing images: match LocalWP behavior (stable size, not fluid) */
 .alexk-contact-stack img {
   width: auto !important;       /* don't force fill-container scaling */
@@ -139,6 +177,30 @@ body.admin-bar .alexk-carousel-page {
 /* Desktop breathing room */
 .alexk-carousel-page {
   padding: 4rem;
+}
+
+/* =========================
+   CONTACT — TOP/BOTTOM HITBOXES
+   (minimal add-on; preserves existing centering)
+   ========================= */
+
+/* allow the stack to distribute extra space to the hitbox Groups */
+.alexk-contact-cover .alexk-contact-stack{
+  min-height: 100%;
+}
+
+/* the two new Group blocks (top/bottom) expand to fill spare space */
+.alexk-contact-cover .alexk-contact-stack > .alexk-hitbox{
+  flex: 1 1 auto;
+  align-self: stretch;
+  position: relative;
+}
+
+/* make the link fill the hitbox Group */
+.alexk-contact-cover .alexk-hitbox-link{
+  position: absolute;
+  inset: 0;
+  display: block;
 }
 
 /* Mobile: remove padding so image can breathe edge-to-edge */
@@ -195,3 +257,20 @@ body.admin-bar .alexk-carousel-page {
   }
 }
 }
+
+/* ++++++++++++++++++ */
+/* Safari painting issue */
+/* ==================== */
+/* CAROUSEL PAGE: prevent selection + drag (all browsers) */
+.alexk-carousel-page,
+.alexk-carousel-page * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.alexk-carousel-page img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
