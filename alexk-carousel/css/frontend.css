@@ -296,22 +296,17 @@ body.admin-bar .alexk-carousel-page {
 /* Do NOT disable selection on the whole page subtree (Safari bug) */
 /* Instead, disable only on the media itself. */
 
-.alexk-carousel img,
-.alexk-carousel picture {
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-user-drag: none;
-  -webkit-touch-callout: none;
-}
+/* ====================
+   Safari ghost-selection TEST (carousel only)
+   ==================== */
 
-/* Optional: remove tap highlight on the interactive image only */
-.alexk-carousel img {
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* Safari-only: force a paint boundary to stop "ghost selection" */
 @supports (-webkit-touch-callout: none) {
-  .alexk-carousel {
-    transform: translateZ(0);
+  .alexk-carousel,
+  .alexk-carousel * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    -webkit-touch-callout: none;
   }
 }
+

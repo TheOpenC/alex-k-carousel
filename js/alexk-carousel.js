@@ -243,6 +243,44 @@ function updateCarouselImage(imgElement, imageObj) {
   imgElement.sizes = imageObj.sizes || '100vw';
 }
 
+// Safari bug: drag-selection on large images can leave a detached
+// selection paint layer (ghost highlight). We prevent selection
+// gestures inside the carousel to avoid the WebKit bug.
 
+/* =========================
+   Safari ghost-selection guard (carousel only)
+   Prevent Safari from entering buggy selection paint state.
+   ========================= */
+(function () {
+  const carousel = document.querySelector(".alexk-carousel");
+  if (!carousel) return;
+
+  // Safari detection (good enough for this narrow fix)
+  const ua = navigator.userAgent;
+  const isSafari = /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR|Android/.test(ua);
+  if (!isSafari) return;
+
+  // Prevent drag-selection and image dragging inside carousel
+  const killSelection = (e) => {
+    // Only left-click drag / selection gestures
+    if (e.type === "mousedown" && e.button !== 0) return;
+
+    // Prevent Safari from creating a selection paint layer
+    e.preventDefault();
+
+    // Clear any phantom selection ranges (even if selection is empty)
+    try { window.getSelection()?.removeAllRanges(); } catch {}
+  };
+
+  // Stop selection lifecycle events
+  carousel.addEventListener("selectstart", killSelection, { passive: false });
+  carousel.addEventListener("mousedown", killSelection, { passive: false });
+  carousel.addEventListener("dragstart", killSelection, { passive: false });
+
+  // Extra: ensure images aren't draggable
+  carousel.querySelectorAll("img").forEach((img) => {
+    img.setAttribute("draggable", "false");
+  });
+})();
 
 

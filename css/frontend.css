@@ -192,6 +192,35 @@ body.admin-bar .alexk-carousel-page {
   display: block;
 }
 
+/* testing hitbox section after contact-stack */
+/* HITBOX LAYOUT: make stack fill the column and let hitboxes own space */
+.alexk-contact-cover .alexk-contact-stack{
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;     /* ensure there is vertical space to distribute */
+  width: 100%;
+}
+
+/* Hitbox groups grow to fill remaining space above/below */
+.alexk-contact-cover .alexk-contact-stack > .alexk-hitbox{
+  flex: 1 1 0;
+  min-height: 1px;       /* Safari/Edge safety so it can't collapse */
+  align-self: stretch;
+  position: relative;
+}
+
+/* The clickable overlay fills each hitbox group */
+.alexk-contact-cover .alexk-hitbox-link{
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.alexk-hitbox { outline: 1px solid red; }
+
+
+/* End test */
+
 /* Elementor/Gutenberg: prevent "alignwide" from stretching the image wrapper */
 .wp-block-cover.alexk-contact-cover figure.alignwide,
 .wp-block-cover.alexk-contact-cover .wp-block-image.alignwide {
