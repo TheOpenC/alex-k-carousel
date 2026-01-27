@@ -243,7 +243,7 @@ function updateCarouselImage(imgElement, imageObj) {
   imgElement.sizes = imageObj.sizes || '100vw';
 }
 
-// Safari bug: drag-selection on large images can leave a detached
+// Safari bug: drag-selection on large imagess can leave a detached
 // selection paint layer (ghost highlight). We prevent selection
 // gestures inside the carousel to avoid the WebKit bug.
 
