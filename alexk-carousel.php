@@ -692,7 +692,7 @@ add_shortcode('alexk_carousel', function($atts = []) {
         }
       }
     }
-    //===== end of .carousel replacement solution.
+    //===== end of .carousel replacement solution..
 
     $items[] = [
       'webp_srcset' => implode(', ', $webp_srcset),
