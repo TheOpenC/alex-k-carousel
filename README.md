@@ -132,3 +132,8 @@ The system is built around a single authoritative state for carousel membership,
 The emphasis is on predictable behavior, minimal coupling, and avoiding hidden automation that is difficult to reason about or maintain.
 
 ---
+
+
+## Press Archive
+
+Working on adding the addition of the press archive to the site. All press documents are xerox or scans of original print press releases.
